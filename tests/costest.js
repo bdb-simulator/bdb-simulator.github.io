@@ -3,7 +3,7 @@ const html=fs.readFileSync(process.argv[2],'utf8');
 const db=JSON.parse(fs.readFileSync(process.argv[2].replace('index.html','cards_db.json'),'utf8'));
 const dom=new JSDOM(html,{runScripts:'dangerously',beforeParse(w){w.structuredClone=structuredClone;}});
 const w=dom.window,d=w.document;const clk=el=>el&&el.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
-clk(d.querySelector('[data-b=goPlay]'));clk(d.querySelector('[data-b=startLocal]'));clk(d.querySelector('[data-b=keep]'));clk(d.querySelector('[data-b=keep]'));
+clk(d.querySelector('[data-b=goPlay]'));w.eval("deckChoice=[deckChoice[0]||'bocchi',deckChoice[1]||'bocchi'];render()");clk(d.querySelector('[data-b=startLocal]'));clk(d.querySelector('[data-b=keep]'));clk(d.querySelector('[data-b=keep]'));
 w.__db=db.defs;
 console.log(JSON.stringify(w.eval(`(() => {
   const T=Object.keys(__db).find(k=>__db[k].type==='territory'&&(__db[k].titles||[]).includes('コスキュン'));

@@ -711,6 +711,37 @@ details.rules li{margin:3px 0}
 .fxbtn{padding:5px 10px;font-size:12.5px}
 @media (prefers-reduced-motion:reduce){.fx{animation-duration:.01s!important}}
 @media (max-width:720px){.fx.banner b{font-size:20px}.fx.banner.big b{font-size:30px}.fx .fxcard .card{--cw:130px;--ch:182px;width:130px;height:182px}.fx.banner{max-width:calc(100vw - 20px);white-space:normal}.fx.banner.battle .fxmini .card{--cw:54px;--ch:76px;width:54px;height:76px}.fx.banner.battle b{font-size:20px}.fxbtn{padding:5px 8px;font-size:12px}}
+
+/* ── 덱 고르기 ── */
+.plabel{font-size:12.5px;color:var(--ink-dim)}
+.dslot{display:flex;flex-direction:column;gap:8px}
+.dslot.empty{min-height:150px;border:2px dashed #4a4380;border-radius:14px;background:#17142e;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--ink-dim);cursor:pointer}
+.dslot.empty b{font-family:var(--num);font-weight:400;font-size:40px;line-height:1;color:var(--pink)}
+.dslot.empty:hover,.dslot.empty:focus-visible{border-color:var(--pink);color:var(--ink)}
+.dslotbtns{display:flex;gap:8px}
+.dslotbtns button{padding:6px 12px;font-size:12.5px}
+.dtile{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;text-align:left;padding:10px;border-radius:12px;background:#1a1733;border:1px solid #352f66;width:100%;cursor:pointer}
+.dtile:hover,.dtile:focus-visible{border-color:#6a5fc0;background:#211d42}
+.dtile.on{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan) inset}
+.dtile .dterr{width:90px;height:90px;display:flex;align-items:center;justify-content:center}
+.dtile .dterr .card{--cw:64px;--ch:90px;width:64px;height:90px;pointer-events:none}
+.dtile .dterr .card.land{width:90px;height:64px}
+.dslot > .dtile .dterr .card.land{width:118px;height:84px}
+.dtile .dinfo{display:flex;flex-direction:column;gap:3px;min-width:0}
+.dtile .dinfo b{font-size:14px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-family:var(--jp)}
+.dtile .dinfo small{font-size:12px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtile .dinfo .tname{font-family:var(--jp);color:var(--ink)}
+.dtile em{font-style:normal;color:var(--redzone)}
+.dslot > .dtile{padding:12px}
+.dslot > .dtile .dterr{width:118px;height:118px}.dslot > .dtile .dterr .card{--cw:84px;--ch:118px;width:84px;height:118px}
+.dsheet{width:min(860px,100%)}
+.dtabs{display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid #352f66}
+.dtabs button{border-radius:10px 10px 0 0;border-bottom:0;background:transparent;color:var(--ink-dim);padding:8px 16px}
+.dtabs button.on{background:var(--mat-2);color:var(--ink);border-color:#4a4380}
+.dtabs small{font-family:var(--num);opacity:.7;margin-left:2px}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.dsheet .empty{color:var(--ink-dim);text-align:center;padding:30px 0}
+@media (max-width:720px){.dgrid{grid-template-columns:minmax(0,1fr)}.dtabs{padding:8px 10px 0}.dtabs button{flex:1;padding:8px 6px}}
 </style>
 </head>
 <body>
@@ -3204,7 +3235,7 @@ const PHASES = [['stand', '스탠드'], ['draw', '드로우'], ['main', '메인'
 const COLOR_KO = { red: '빨강', blue: '파랑', white: '하양', black: '검정', none: '무색' };
 const ATTR_KO = { 'ハート': '하트', 'スペード': '스페이드', 'ダイヤ': '다이아', 'クラブ': '클럽' };
 const attrKo = a => ATTR_KO[a] || a;
-let deckChoice = ['bocchi', 'bocchi'];
+let deckChoice = [null, null];
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const controller = () => !S ? 0 : S.pending ? S.pending.player : S.active;
 const resetUi = () => { ui = { sel: null, tgt: null, scout: null, view: ui.view, detail: ui.detail, side: ui.side, sheet: ui.sheet, manOpen: ui.manOpen }; };
@@ -3409,7 +3440,7 @@ const Net = {
     screen = 'lobby'; render();
   },
   pushPresence() {
-    const k = deckChoice[Math.max(0, this.seat)], ref = deckRef(k);
+    const k = deckChoice[Math.max(0, this.seat)] || null, ref = k ? deckRef(k) : null;
     this.room?.presence({ seat: this.seat, deck: k, deckData: typeof ref === 'object' ? ref : undefined, ready: !!this.ready, gid: this.gid }).catch(() => {});
   },
   emit(topic, data) { return this.room?.emit(topic, data).catch(e => { if (e.code === 'not_permitted') { this.status = '이 페이지에서 보낼 권한이 없어요. 방장에게 공유 권한(참여자 이상)을 받아야 해요.'; render(); } }); },
@@ -3417,7 +3448,7 @@ const Net = {
   opponent() { return this.others().find(p => p.presence?.seat === 1 - this.seat); },
   seatTaken(seat) { return this.others().some(p => p.presence?.seat === seat); },
   start() {   // 방장만
-    const opp = this.opponent(); if (!opp) return;
+    const opp = this.opponent(); if (!opp || !deckChoice[0]) return;
     const od = opp.presence.deckData || (DECKS[opp.presence.deck] && !DECKS[opp.presence.deck].mine ? opp.presence.deck : 'bocchi');
     const decks = [deckRef(deckChoice[0]), od];
     const setup = { gid: Math.random().toString(36).slice(2, 10), seed: (Math.random() * 4294967296) >>> 0, decks };
@@ -3491,15 +3522,48 @@ function deckListHTML(key) {
     ${manual ? `<span class="hint">텍스트 능력이 있는 카드 ${manual}종은 수동 조작으로 처리해요</span>` : ''}
     <span class="${errs.length ? 'bad' : 'good'}">${errs.length ? errs.join(', ') : '덱 규칙 통과'}</span></div><ul>${rows}</ul></div>`;
 }
+/* ── 덱 고르기: 빈 칸을 누르면 덱 목록 창(입상 덱 / 내 덱 / 기본 덱 탭) ── */
+const PLACE_KO = [['準優勝', '준우승'], ['優勝', '우승'], ['第3位', '3위'], ['第4位', '4위'], ['ベスト4', '4강'], ['ベスト8', '8강']];
+function deckMeta(d) {
+  const m = /【(\d{4})\/(\d{1,2})\/(\d{1,2})】/.exec(d.label || '');
+  const date = m ? `${m[1]}.${m[2].padStart(2, '0')}.${m[3].padStart(2, '0')}` : (d.date || '').replace(/-/g, '.');
+  const place = d.sample ? (PLACE_KO.find(([j]) => d.label.includes(j)) || [])[1] || '입상' : '';
+  const n = (d.main || []).reduce((t, [, k]) => t + k, 0);
+  return { date, place, n, terr: DEFS[d.territory] };
+}
+function deckTile(k, opt = {}) {
+  const d = DECKS[k], m = deckMeta(d), T = m.terr;
+  const title = d.sample ? d.collab : d.label;
+  const sub = d.sample ? `${m.date} ${m.place}` : `${m.n}장`;
+  const errs = Engine.validateDeck(d);
+  return `<button class="dtile ${opt.on ? 'on' : ''}" data-b="${opt.b || 'pickDeck'}" data-k="${esc(k)}" ${opt.i != null ? `data-i="${opt.i}"` : ''} ${opt.disabled ? 'disabled' : ''}>
+    <span class="dterr">${T ? cardHTML(T, {}) : ''}</span>
+    <span class="dinfo"><b>${esc(title || '')}</b><small class="tname">${esc(T?.name || '')}</small><small>${esc(sub)}${errs.length ? ' <em>덱 규칙 위반</em>' : ''}</small></span></button>`;
+}
 function deckPicker(i, label, disabled) {
-  if (!DECKS[deckChoice[i]]) deckChoice[i] = 'bocchi';
-  const opt = ([k, d]) => `<option value="${k}" ${deckChoice[i] === k ? 'selected' : ''}>${esc(d.sample ? `[${d.collab}] ${d.label}` : d.label)}</option>`;
+  const k = deckChoice[i];
+  if (k && !DECKS[k]) deckChoice[i] = null;
+  if (!deckChoice[i]) return `<div class="pickdeck"><span class="plabel">${label}</span>
+    <button class="dslot empty" data-b="openDecks" data-i="${i}" ${disabled ? 'disabled' : ''}><b>+</b><span>덱을 골라 주세요</span></button></div>`;
+  const open = ui.deckList === i;
+  return `<div class="pickdeck"><span class="plabel">${label}</span>
+    <div class="dslot">${deckTile(deckChoice[i], { b: 'openDecks', i, disabled })}
+      <div class="dslotbtns"><button data-b="openDecks" data-i="${i}" ${disabled ? 'disabled' : ''}>바꾸기</button><button data-b="toggleList" data-i="${i}">${open ? '목록 접기' : '카드 목록'}</button></div></div>
+    ${open ? deckListHTML(deckChoice[i]) : ''}</div>`;
+}
+function deckModalHTML() {
+  const dp = ui.deckPick; if (!dp) return '';
   const es = Object.entries(DECKS);
-  const mine = es.filter(([, d]) => d.mine);
-  return `<div class="pickdeck"><label>${label}<select data-deck="${i}" ${disabled ? 'disabled' : ''}>
-    ${mine.length ? `<optgroup label="내 덱">${mine.map(opt).join('')}</optgroup>` : ''}
-    <optgroup label="공식 입상 덱">${es.filter(([, d]) => d.sample).map(opt).join('')}</optgroup>
-    <optgroup label="스타터·테스트 덱">${es.filter(([, d]) => !d.sample && !d.mine).map(opt).join('')}</optgroup></select></label>${deckListHTML(deckChoice[i])}</div>`;
+  const tabs = [['sample', '입상 덱', es.filter(([, d]) => d.sample)], ['mine', '내 덱', es.filter(([, d]) => d.mine)], ['basic', '기본 덱', es.filter(([, d]) => !d.sample && !d.mine)]];
+  const cur = tabs.find(t => t[0] === dp.tab) || tabs[0];
+  let list = cur[2];
+  if (cur[0] === 'sample') list = [...list].sort((a, b) => deckMeta(b[1]).date.localeCompare(deckMeta(a[1]).date));
+  const body = list.length ? `<div class="dgrid">${list.map(([k]) => deckTile(k, { on: deckChoice[dp.i] === k })).join('')}</div>`
+    : `<p class="empty">${cur[0] === 'mine' ? '아직 만든 덱이 없어요. 처음 화면의 덱 편성에서 만들 수 있어요.' : '덱이 없어요.'}</p>`;
+  return `<div class="modal" data-b="closeDecks"><div class="sheet dsheet" role="dialog" aria-label="덱 고르기">
+    <header><h2>${dp.i === 0 && !online() ? 'P1' : dp.i === 1 && !online() ? 'P2' : '내'} 덱 고르기</h2><span class="sub"></span><button data-b="closeDecks">닫기</button></header>
+    <div class="dtabs">${tabs.map(([t, n, l]) => `<button class="${t === cur[0] ? 'on' : ''}" data-b="deckTab" data-t="${t}">${n} <small>${l.length}</small></button>`).join('')}</div>
+    <div class="body">${body}</div></div></div>`;
 }
 function lobbyHTML() {
   const tabs = `<div class="modes"><button data-b="toHome" class="back">← 처음 화면</button><button class="${playMode === 'local' ? 'on' : ''}" data-b="mode" data-m="local">한 화면에서 번갈아</button><button class="${playMode === 'online' ? 'on' : ''}" data-b="mode" data-m="online">온라인 대전</button></div>`;
@@ -3507,7 +3571,7 @@ function lobbyHTML() {
   if (playMode === 'local') {
     body = `<p class="lead">두 사람이 한 기기로 번갈아 조작해요. 각자 쓸 덱을 고르고 시작하세요.</p>
       <div class="decks2">${deckPicker(0, 'P1 덱')}${deckPicker(1, 'P2 덱')}</div>
-      <div class="startrow"><button class="go big" data-b="startLocal">게임 시작</button></div>`;
+      <div class="startrow"><button class="go big" data-b="startLocal" ${deckChoice[0] && deckChoice[1] ? '' : 'disabled'}>${deckChoice[0] && deckChoice[1] ? '게임 시작' : '두 사람의 덱을 고르면 시작할 수 있어요'}</button></div>`;
   } else if (!Net.lobby) {
     body = Net.peerMode
       ? `<p class="lead">온라인 연결 도구를 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요.</p>`
@@ -3528,8 +3592,8 @@ function lobbyHTML() {
         ${Net.others().map(p => `<li>${p.guest ? '초대된 친구' : '참가자'} ${seatName(p.presence?.seat)}${p.presence?.deckData ? `, 덱: ${esc(p.presence.deckData.label)} (직접 만든 덱)` : p.presence?.deck && DECKS[p.presence.deck] ? `, 덱: ${esc(DECKS[p.presence.deck].label)}` : ''}${p.presence?.ready ? ' <span class="good">준비 완료</span>' : ''}</li>`).join('') || '<li class="hint">아직 아무도 없어요. 방 코드를 친구에게 알려 주세요.</li>'}
       </ul>
       ${me >= 0 ? `<div class="decks1">${deckPicker(me, '내 덱', Net.ready)}</div>` : '<p class="hint">두 자리가 모두 찼어요. 관전만 할 수 있어요.</p>'}
-      <div class="startrow">${me === 0 ? `<button class="go big" data-b="hostStart" ${ready ? '' : 'disabled'}>${ready ? '게임 시작' : '상대가 준비하면 시작할 수 있어요'}</button>`
-        : me === 1 ? `<button class="${Net.ready ? 'on' : 'go'} big" data-b="ready">${Net.ready ? '준비 취소' : '이 덱으로 준비'}</button><span class="hint">방장이 시작하면 게임이 열려요.</span>` : ''}</div>
+      <div class="startrow">${me === 0 ? `<button class="go big" data-b="hostStart" ${ready && deckChoice[0] ? '' : 'disabled'}>${!deckChoice[0] ? '내 덱을 고르면 시작할 수 있어요' : ready ? '게임 시작' : '상대가 준비하면 시작할 수 있어요'}</button>`
+        : me === 1 ? `<button class="${Net.ready ? 'on' : 'go'} big" data-b="ready" ${deckChoice[1] || Net.ready ? '' : 'disabled'}>${Net.ready ? '준비 취소' : '이 덱으로 준비'}</button><span class="hint">방장이 시작하면 게임이 열려요.</span>` : ''}</div>
       ${Net.status ? `<p class="warn">${esc(Net.status)}</p>` : ''}`;
   }
   return `<div class="lobby"><header class="lh"><h1>게임 플레이</h1><p>대전 방식과 덱을 고른 뒤 시작하세요. 덱은 처음 화면의 덱 편성에서 만들 수 있어요.</p></header>${tabs}<section class="lbody">${body}
@@ -3553,6 +3617,7 @@ function lobbyHTML() {
         <li>같은 화면에서 두 사람이 번갈아 조작하는 방식이라, 조작하는 쪽의 패만 보여요</li>
       </ul></details></section>
     <aside class="ldetail">${detailHTML(ui.detail)}</aside></div>
+    ${deckModalHTML()}
     ${toast ? `<div class="toast" role="status">${esc(toast)}</div>` : ''}`;
 }
 
@@ -4271,7 +4336,17 @@ function handleAction(e, onCard) {
     if (k === 'toHome') { screen = 'home'; return render(); }
     if (k === 'goPlay') { screen = 'lobby'; return render(); }
     if (k === 'mode') { playMode = b.dataset.m; return render(); }
-    if (k === 'startLocal') return startNew();
+    if (k === 'startLocal') { if (!deckChoice[0] || !deckChoice[1]) return; return startNew(); }
+    if (k === 'openDecks') { const i = +b.dataset.i; ui.deckPick = { i, tab: DECKS[deckChoice[i]]?.mine ? 'mine' : DECKS[deckChoice[i]] && !DECKS[deckChoice[i]].sample ? 'basic' : (ui.deckPick?.tab || 'sample') }; return render(); }
+    if (k === 'closeDecks') { if (b.classList.contains('modal') && e.target !== b) return; ui.deckPick = null; return render(); }
+    if (k === 'deckTab') { ui.deckPick.tab = b.dataset.t; return render(); }
+    if (k === 'toggleList') { const i = +b.dataset.i; ui.deckList = ui.deckList === i ? null : i; return render(); }
+    if (k === 'pickDeck') {
+      const i = ui.deckPick.i; deckChoice[i] = b.dataset.k; ui.deckPick = null; ui.deckList = null;
+      const T = DEFS[DECKS[b.dataset.k].territory]; if (T) ui.detail = { id: DECKS[b.dataset.k].territory };
+      if (Net.code) Net.pushPresence();
+      return render();
+    }
     if (k === 'builder') return openBuilder(null);
     if (screen === 'builder') return builderAction(k, b);
     if (k === 'createRoom') { const code = Math.random().toString(36).slice(2, 8); return Net.join(code, 0); }
@@ -4282,7 +4357,7 @@ function handleAction(e, onCard) {
     }
     if (k === 'leaveRoom') { playMode = 'online'; return Net.leave(); }
     if (k === 'copyCode') { try { navigator.clipboard.writeText(Net.code).then(() => { toast = '방 코드를 복사했어요'; render(); }, () => {}); } catch {} return; }
-    if (k === 'ready') { Net.ready = !Net.ready; Net.pushPresence(); return render(); }
+    if (k === 'ready') { if (!Net.ready && !deckChoice[Math.max(0, Net.seat)]) return; Net.ready = !Net.ready; Net.pushPresence(); return render(); }
     if (k === 'hostStart' || k === 'rematch') { Net.ready = false; return Net.start(); }
     if (screen === 'lobby' || screen === 'home') return;
     // 온라인에서 상대 차례에는 게임 조작을 막음 (보기 기능은 허용)
@@ -4552,7 +4627,7 @@ function builderAction(k, b) {
   }
   if (k === 'bDelete') {
     MyDecks.list = MyDecks.list.filter(d => d.key !== bld.deck.key); MyDecks.save(); registerMyDecks();
-    for (let i = 0; i < 2; i++) if (!DECKS[deckChoice[i]]) deckChoice[i] = 'bocchi';
+    for (let i = 0; i < 2; i++) if (!DECKS[deckChoice[i]]) deckChoice[i] = null;
     bld.deck.key = null; bld.msg = '내 덱에서 지웠어요. 화면의 내용은 남아 있어 다시 저장할 수 있어요';
     return render();
   }

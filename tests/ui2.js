@@ -5,7 +5,7 @@ const w=dom.window,d=w.document;
 const clk=el=>el&&el.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
 const q=s=>d.querySelector(s), txt=()=>q('.prompt')?.textContent.replace(/\s+/g,' ').trim();
 console.log('로비:', q('.lobby h1')?.textContent, '| 덱 목록', d.querySelectorAll('.decklist li').length, '줄');
-clk(q('[data-b=startLocal]'));
+dom.window.eval("deckChoice=[deckChoice[0]||'bocchi',deckChoice[1]||'bocchi'];render()");clk(q('[data-b=startLocal]'));
 clk(q('[data-b=keep]'));clk(q('[data-b=keep]'));
 console.log('1:',q('.top').textContent.replace(/\s+/g,' ').slice(0,60),'|',q('.ps.me .terr').textContent);
 // 몇 턴 진행: 에너지 놓고, 플레이할 수 있는 것 플레이, 공격, 턴 종료

@@ -41,6 +41,7 @@ function makeClaude(tag) {
 function page(tag) {
   const errs = [];
   const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://example.test/' + tag, beforeParse(w) { w.structuredClone = structuredClone; w.claude = makeClaude(tag); w.addEventListener('error', e => errs.push(e.message)); } });
+  dom.window.eval("deckChoice=['bocchi','bocchi']");
   return { w: dom.window, d: dom.window.document, errs };
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
