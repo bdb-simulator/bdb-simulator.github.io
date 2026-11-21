@@ -683,7 +683,7 @@ def eff_patterns():
     add(r'あなたのユニットを1枚と相手のユニットを1枚対象とし、対象を(?P<v>手札に戻|ドロップさせ)' + V('す', 'る', 'し', '') + END,
         lambda m: [{'op': 'tgt', 'f': {'side': 'own', 'type': 'unit'}, 'n': 1, 'upto': 0, 'save': 'A'}, {'op': 'tgt', 'f': {'side': 'opp', 'type': 'unit'}, 'n': 1, 'upto': 0, 'save': 'B', 'add': 1}, {'op': 'bounce' if m.group('v') == '手札に戻' else 'drop', 'to': 'T'}])
     add(r'あなたの山札をシャッフルして上から1枚見て、手札に加えるかライフの先頭に置' + V('く', 'き') + END,
-        lambda m: [{'op': 'shuffle'}, {'op': 'look', 'n': 1, 'f': {}, 'k': 0, 'to': 'hand', 'rest': 'top'}, {'op': 'choose', 'opts': [[{'op': 'look', 'n': 1, 'f': {}, 'k': 1, 'to': 'hand', 'rest': 'top'}], [{'op': 'lifeTop', 'n': 1}]], 'labels': ['패에 넣는다', '라이프 맨 앞에 놓는다']}])
+        lambda m: [{'op': 'shuffle'}, {'op': 'peekTop', 'n': 1}, {'op': 'choose', 'opts': [[{'op': 'draw', 'n': 1}], [{'op': 'lifeTop', 'n': 1}]], 'labels': ['패에 넣는다', '라이프 맨 앞에 놓는다']}])
     # --- 16차 ---
     add(r'(?:そのターン中、)?このユニットのヒットをその[^、。]*?のヒット分、増や' + V('す', 'し') + END, lambda m: {'op': 'hitByMilled', 'to': 'self'})
     # --- 17차 ---
