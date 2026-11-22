@@ -745,6 +745,15 @@ details.rules li{margin:3px 0}
 .dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
 .dsheet .empty{color:var(--ink-dim);text-align:center;padding:30px 0}
 @media (max-width:720px){.dgrid{grid-template-columns:minmax(0,1fr)}.dtabs{padding:8px 10px 0}.dtabs button{flex:1;padding:8px 6px}}
+
+/* 고르기 창: 같은 카드 구분 */
+.pickc{display:flex;flex-direction:column;align-items:center;gap:4px}
+.ptag{font-size:11.5px;padding:1px 8px;border-radius:8px;white-space:nowrap;font-weight:700}
+.ptag.mine{background:#1f5d7a;color:#dff6ff}.ptag.opp{background:#7a1f45;color:#ffe3ef}
+.card .pnum{position:absolute;top:-9px;left:50%;transform:translateX(-50%);z-index:3;font-size:11px;font-weight:700;padding:1px 7px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px #0008}
+.card .pnum.mine{background:#1f5d7a;color:#dff6ff}.card .pnum.opp{background:#7a1f45;color:#ffe3ef}
+.card.rested .pnum{transform:translateX(-50%)}
+.card.hl{outline:3px solid var(--yellow);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -3746,7 +3755,8 @@ function unitHTML(u) {
   if (u.rested) cls += ' rested';
   const att = (u.att || []).length ? `<span class="attn" title="${esc(u.att.map(a => DEFS[a.id].name).join(', '))}">붙은 카드 ${u.att.length}</span>` : '';
   const html = cardHTML(d, { u, cls, attrs: clickAttrs('field', u.owner, u.uid) });
-  return att ? html.replace(/<\/div>$/, att + '</div>') : html;
+  const extra = att + pickNum(u);
+  return extra ? html.replace(/<\/div>$/, extra + '</div>') : html;
 }
 function handCardHTML(owner, c) {
   const d = DEFS[c.id], pd = S.pending;
@@ -3820,6 +3830,23 @@ function matHTML(p, isViewer) {
   return isViewer ? sheet + hand : sheet;
 }
 
+/* 고르기 창에서 같은 카드를 구분하는 표시: 「P2 필드 2번」 (필드는 왼쪽부터, 나머지 존은 놓인 순서) */
+const ZONE_KO = { field: '필드', hand: '패', drop: '드롭 존', energy: '에너지', deck: '덱', life: '라이프', remove: '리무브 존', set: '뒷면 카드' };
+function cardTag(uid) {
+  const u = Engine.findUnit(S, uid), me = viewerSeat();
+  if (u) { const i = Engine.unitsOf(S, u.owner).findIndex(x => x.uid === uid); return { text: `${S.players[u.owner].name} 필드 ${i + 1}번${u.rested ? ', 레스트' : ''}`, mine: u.owner === me, n: i + 1 }; }
+  for (let q = 0; q < 2; q++) for (const z of ['hand', 'drop', 'energy', 'life', 'remove', 'set', 'deck']) {
+    const Z = S.players[q][z] || [], i = Z.findIndex(c => c.uid === uid);
+    if (i >= 0) return { text: z === 'deck' ? `${S.players[q].name} 덱 위 ${i + 1}번째` : `${S.players[q].name} ${ZONE_KO[z]} ${i + 1}번`, mine: q === me, n: i + 1 };
+  }
+  return null;
+}
+/** 필드 카드가 지금 고르기 후보면 번호표를 붙임 */
+function pickNum(u) {
+  const pd = S.pending; if (pd?.type !== 'fx' || pd.kind !== 'pick' || !(pd.show || pd.cands || []).includes(u.uid) || !myControl()) return '';
+  const i = Engine.unitsOf(S, u.owner).findIndex(x => x.uid === u.uid);
+  return `<span class="pnum ${u.owner === viewerSeat() ? 'mine' : 'opp'}">${S.players[u.owner].name} ${i + 1}</span>`;
+}
 /* ── 진행 안내 ── */
 /* 가운데 진행 바: 높이가 고정이라 내용이 바뀌어도 매트가 움직이지 않음.
    페이즈 표시와 '다음 페이즈' 버튼을 내 필드 바로 위에 둠 */
@@ -3943,9 +3970,12 @@ function fxPromptHTML(pd, P) {
   const all = (pd.show || pd.cands);
   const cardOf = uid => { const u = Engine.findUnit(S, uid); if (u) return { c: u, u };
     for (const Q of S.players) for (const z of ['hand', 'drop', 'energy', 'deck', 'life', 'remove']) { const c = (Q[z] || []).find(x => x.uid === uid); if (c) return { c }; } return null; };
+  const showTag = all.length > 1 || all.some(uid => Engine.findUnit(S, uid));
   const cards = all.map(uid => { const f = cardOf(uid); if (!f) return '';
     const ok = pd.cands.includes(uid);
-    return cardHTML(DEFS[f.c.id], { u: f.u, uid, cls: ok ? (sel.includes(uid) ? 'sel tg' : 'tg') : pd.act === 'peek' ? '' : 'dim', attrs: ok ? clickAttrs('pick', pd.player, uid) : '' }); }).join('');
+    const html = cardHTML(DEFS[f.c.id], { u: f.u, uid, cls: ok ? (sel.includes(uid) ? 'sel tg' : 'tg') : pd.act === 'peek' ? '' : 'dim', attrs: ok ? clickAttrs('pick', pd.player, uid) : '' });
+    const t = showTag ? cardTag(uid) : null;
+    return t ? `<div class="pickc" data-hl="${uid}">${html}<small class="ptag ${t.mine ? 'mine' : 'opp'}">${esc(t.text)}</small></div>` : html; }).join('');
   if (pd.act === 'peek') return `<div class="prompt"><div class="msg">${head}${esc(pd.text)}</div><div class="cards">${cards}</div><button class="go" data-b="fxOk">확인</button></div>`;
   const range = pd.min === pd.max ? `${pd.max}장` : `${pd.min ? pd.min + '~' : '최대 '}${pd.max}장`;
   const can = sel.length >= pd.min && sel.length <= pd.max;
@@ -4752,6 +4782,10 @@ if (typeof document !== 'undefined' && document.getElementById('app')) {
   const app = document.getElementById('app');
   initDrag(app);
   app.addEventListener('click', onClick);
+  // 고르기 창의 카드에 올리면 필드의 같은 카드를 표시
+  const hl = (uid, on) => document.querySelectorAll(`.ps .card[data-z="field"][data-u="${uid}"]`).forEach(el => el.classList.toggle('hl', on));
+  app.addEventListener('pointerover', e => { const p = e.target.closest('.pickc[data-hl]'); if (p) hl(p.dataset.hl, true); });
+  app.addEventListener('pointerout', e => { const p = e.target.closest('.pickc[data-hl]'); if (p && !p.contains(e.relatedTarget)) hl(p.dataset.hl, false); });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && ui.view) { ui.view = null; render(); return; }
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-z][tabindex]')) { e.preventDefault(); e.target.click(); }
