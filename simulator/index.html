@@ -185,6 +185,7 @@ button.energy:hover{border-color:var(--cyan)}
 .card.hasimg:not(.noimg) .cost,.card.hasimg:not(.noimg) .trig{display:none}
 .card .badge{position:absolute;left:50%;transform:translateX(-50%);bottom:-9px;background:#17142b;border:1.5px solid var(--cc);border-radius:9px;padding:0 7px;font-family:var(--num);font-size:12px;white-space:nowrap}
 .card .badge.up{color:var(--ok);border-color:var(--ok)} .card .badge.down{color:#ff8a8a;border-color:#ff8a8a}
+.card .badge.same{color:var(--ink);border-color:#6a5fc0}
 .card.hasimg:not(.noimg) .dmg{bottom:auto;top:40%;right:-6px}
 .card.hasimg.rested:not(.noimg){width:var(--cw);height:auto;min-height:var(--ch);transform:rotate(90deg) scale(.86);margin:0 22px;filter:brightness(.8)}
 .card.hasimg.rested:not(.noimg)::after{content:none}
@@ -965,7 +966,7 @@ const Engine = (() => {
   }
   function log(s, m, cls) { s.log.push(cls ? { m, cls } : { m }); }
   /** 연출용 사건 기록 (화면이 순서대로 보여 줌). 게임 진행에는 쓰지 않음 */
-  function fxe(s, ev) { s.fxSeq = (s.fxSeq || 0) + 1; (s.fx ||= []).push({ n: s.fxSeq, ...ev }); if (s.fx.length > 80) s.fx.splice(0, s.fx.length - 80); }
+  function fxe(s, ev) { s.fxSeq = (s.fxSeq || 0) + 1; (s.fx ||= []).push({ ...ev, n: s.fxSeq }); if (s.fx.length > 80) s.fx.splice(0, s.fx.length - 80); }
 
   function validateDeck(deck) {
     const list = deck.main, errs = [];
@@ -1578,7 +1579,7 @@ const Engine = (() => {
     if (hasKw(s, from, 'dmgToEnergy')) to.toEnergyTurn = s.turnCount;
     if (hasKw(s, to, 'dmgDouble')) n *= 2;
     to.damage += n;
-    if (n > 0) fxe(s, { k: 'dmg', u: to.uid, n, tot: to.damage, pw: power(s, to) });
+    if (n > 0) fxe(s, { k: 'dmg', u: to.uid, v: n, tot: to.damage, pw: power(s, to) });
     if (n > 0 && hasKw(s, from, 'deathtouch')) { to.dtKill = 1; if (hasKw(s, from, 'deathtouchSilent')) to.dtSilent = 1; }
   }
   function battleDamage(s, a, b) {   // 804
@@ -2145,6 +2146,16 @@ const Engine = (() => {
   const defPowF = f => f && (f.powGE != null || f.powLE != null) ? { ...f, _defPow: 1 } : f;
   const energyFor = (P, st) => P.energy.filter(e => (st.how === 'drop' || !e.rested) && (!st.color || DEFS[e.id].color === st.color) && (!st.attr || (DEFS[e.id].attr || []).includes(st.attr)) && (!st.f || defMatches(DEFS[e.id], st.f)));
   /** 비용을 낼 수 있는지 */
+  /** 이 능력의 비용이 【スキル】 코스트인지 (카드 문장 기준) */
+  function isSkillCost(q) {
+    const d = DEFS[q.id], a = (d?.ab || [])[q.ai];
+    if (!d || !a) return false;
+    const lines = (a.li || []).map(i => (d.text || [])[i] || '').join('');
+    return lines.includes('【スキル】') && hasKwText(d, 'スキル');
+  }
+  /** 「『패의 커맨드 1장 드롭』으로도 스킬 코스트를 낼 수 있다」(サーヴァント・サマー・フェスティバル！ 등)가 지금 적용되는지 */
+  const skillAltOk = (s, q) => hasRule(s, q.p, 'skillAltCmd') && s.active === q.p && s.players[q.p].hand.some(c => DEFS[c.id].type === 'command') && isSkillCost(q);
+  const SKILL_ALT_CMD = [{ op: 'discard', n: 1, f: { type: 'command' }, inCost: 1 }];
   function costPayable(s, q, cost) {
     const P = s.players[q.p];
     for (const st of cost) {
@@ -2178,7 +2189,7 @@ const Engine = (() => {
       if (a.k !== 'play') fxe(s, { k: 'trig', u: q.src, id: q.id, p: q.p, kind: a.k === 'auto' ? '자동 능력' : '효과' });
       q.steps = [];
       if (a.cost && (s.turn.flags || {}).freeSkill === q.p + 1) { s.turn.flags.freeSkill = 0; log(s, `${d.name}: 스킬 코스트를 내지 않고 발동`); }
-      else if (a.cost && hasRule(s, q.p, 'skillAltCmd') && s.active === q.p && s.players[q.p].hand.some(c => DEFS[c.id].type === 'command') && a.cost.some(x => x.inCost)) {
+      else if (a.cost && a.cost.some(x => x.inCost) && skillAltOk(s, q)) {
         const ok1 = costPayable(s, q, a.cost);
         q.steps.push({ op: 'choose', text: '스킬 코스트를 어떻게 낼까요?', opts: [[...structuredClone(a.cost)], [{ op: 'discard', n: 1, f: { type: 'command' }, inCost: 1 }], [{ op: 'stop' }]], labels: ['원래 스킬 코스트', '패의 커맨드 카드 1장 드롭', '발동하지 않음'], ...(ok1 ? {} : { dis: { k: 0, c: [] } }) }, { op: 'paid' });
       }
@@ -2378,6 +2389,16 @@ const Engine = (() => {
     if (st.may && !st.asked && st.op !== 'playFree') { st.asked = 1; return ask(s, q, { kind: 'confirm', text: st.op === 'draw' ? `${st.n}장 뽑을까요?` : '이 효과를 쓸까요?', may: 1, player: st.who === 'opp' ? 1 - p : p }); }
     switch (st.op) {
       case 'confirm':
+        // 「【スキル】を発動することで」/「【スキル】を12回まで」의 코스트: 대체 코스트(패의 커맨드 드롭)를 고를 수 있으면 고르게 함
+        if (st.need?.some(x => x.inCost) && !st.done && skillAltOk(s, q)) {
+          const k = st.need.length, after = q.steps.slice(q.i + 1, q.i + 1 + k);
+          const same = after.length === k && after.every((x, j) => x.op === st.need[j].op);
+          const ok1 = costPayable(s, q, st.need);
+          const choose = { op: 'choose', text: (st.text || '').replace('비용을 내고 효과를 쓸까요?', '') + ' 스킬 코스트를 어떻게 낼까요?', opts: [structuredClone(st.need), structuredClone(SKILL_ALT_CMD), st.alt ? structuredClone(st.no || [{ op: 'stop' }]) : [{ op: 'stop' }]],
+            labels: ['원래 스킬 코스트', '패의 커맨드 카드 1장 드롭', '발동하지 않음'], ...(ok1 ? {} : { dis: { k: 0, c: [] } }) };
+          q.steps.splice(q.i, 1 + (same ? k : 0), choose);
+          return execStep(s, q, q.steps[q.i]);
+        }
         if (st.need && !costPayable(s, q, st.need)) { log(s, '비용을 낼 수 없어 이후 효과 없음'); return 'abort'; }
         return st.done ? 'ok' : (st.done = 1, ask(s, q, { kind: 'confirm', text: st.text, cost: st.cost }));
       case 'paid': if (DEFS[q.id].ab[q.ai].cost?.some(x => x.inCost)) fire(s, 'skillUsed', { uid: q.src, p }); return 'ok';
@@ -2392,7 +2413,7 @@ const Engine = (() => {
         if (!st.upto && cands.length <= n && !st.distinct && !st.same) { q.ctx.T = st.add ? [...(q.ctx.T || []), ...cands] : cands; q.ctx.Tzone = zone || 'field'; noteT(s, q); if (st.save) q.ctx[st.save] = cands; return 'ok'; }
         return ask(s, q, { kind: 'pick', cands, min: st.upto ? 0 : Math.min(n, cands.length), max: n, text: st.save === 'A' ? '내 유닛을 고르세요' : st.save === 'B' ? '상대 유닛을 고르세요' : st.each ? '종류별로 1장씩 고르세요' : '대상을 고르세요', into: 'T', save: st.save, add: st.add, each: st.each, distinct: st.distinct, same: st.same, sumPowLE: st.sumPowLEself ? (findUnit(s, q.src) ? power(s, findUnit(s, q.src)) : 0) : null, zone: zone || 'field' });
       }
-      case 'dmg': for (const u of unitsFor(s, q, st.to)) { if (hasKw(s, u, 'noDamage') || hasKw(s, u, 'noEffDmg')) { log(s, `${name(u)}: 받는 데미지 0`); continue; } const dn = hasKw(s, u, 'dmgDouble') ? st.n * 2 : st.n; u.damage += dn; fxe(s, { k: 'dmg', u: u.uid, n: dn, tot: u.damage, pw: power(s, u) }); log(s, `${name(u)}에게 ${dn} 데미지 (받은 데미지 ${u.damage} / 파워 ${power(s, u)})`); } return 'ok';
+      case 'dmg': for (const u of unitsFor(s, q, st.to)) { if (hasKw(s, u, 'noDamage') || hasKw(s, u, 'noEffDmg')) { log(s, `${name(u)}: 받는 데미지 0`); continue; } const dn = hasKw(s, u, 'dmgDouble') ? st.n * 2 : st.n; u.damage += dn; fxe(s, { k: 'dmg', u: u.uid, v: dn, tot: u.damage, pw: power(s, u) }); log(s, `${name(u)}에게 ${dn} 데미지 (받은 데미지 ${u.damage} / 파워 ${power(s, u)})`); } return 'ok';
       case 'pow': for (const u of unitsFor(s, q, st.to)) { if (st.n < 0 && u.owner !== p && hasKw(s, u, 'noOppDebuff')) { log(s, `${name(u)}: 상대 효과로 파워가 줄지 않음`); continue; } if (st.dur) addLt(s, p, u, st, { power: st.n }); else u.tmp.power += st.n; log(s, `${name(u)} 파워 ${st.n > 0 ? '+' : ''}${st.n} (${st.dur ? '지정 기간' : '이번 턴'})`); } return 'ok';
       case 'hit': for (const u of unitsFor(s, q, st.to)) { if (st.dur) addLt(s, p, u, st, { hit: st.n }); else u.tmp.hit += st.n; log(s, `${name(u)} 히트 ${st.n > 0 ? '+' : ''}${st.n} (이번 턴)`); } return 'ok';
       case 'kw': for (const u of unitsFor(s, q, st.to)) { if (st.dur) addLt(s, p, u, { ...st, srcUid: q.src }, { kw: st.kw }); else u.tmp.kw.push(st.kw); } return 'ok';
@@ -3736,11 +3757,12 @@ function cardHTML(d, opt = {}) {
   } else if (d.fx) stats = `<div class="fx">${esc(fxText(d))}</div>`;
   const kws = u ? KW_SHOW.filter(k => Engine.hasKw(S, u, k)) : [];
   const attrs = opt.attrs || '';
-  // 이미지 카드 위에 보여줄 현재 수치 (기본값과 다를 때만)
+  // 필드 유닛은 현재 파워를 항상 표시 (올랐으면 초록, 내렸으면 빨강, 그대로면 기본색). 히트는 바뀌었을 때만
   let badge = '';
   if (u && d.type === 'unit') {
     const pw = Engine.power(S, u), ht = Engine.hit(S, u);
-    if (pw !== d.power || ht !== d.hit) badge = `<span class="badge ${pw > d.power || ht > d.hit ? 'up' : 'down'}">${pw}${ht !== d.hit ? ` / 히트 ${ht}` : ''}</span>`;
+    const cls = pw > d.power || ht > d.hit ? 'up' : pw < d.power || ht < d.hit ? 'down' : 'same';
+    badge = `<span class="badge ${cls}" title="현재 파워${ht !== d.hit ? '와 히트' : ''}">${pw}${ht !== d.hit ? ` / 히트 ${ht}` : ''}</span>`;
   }
   // 텍스트 카드로 먼저 그리고, 이미지가 실제로 불러와지면 이미지로 바꿈 (불러온 주소는 기억해 다음부터 바로 이미지)
   const src = imgUrl(d);
@@ -4329,7 +4351,7 @@ const Fx = {
       }
       case 'blk': { Sfx.play('blk'); const r = this.rect(e.u); if (r) this.at(r, 'ring blk', '', 800); this.banner(`<b>블록!</b><small>${esc(DEFS[e.id]?.name || '')}</small>`, 'blk', 800); return 700; }
       case 'battle': Sfx.play('clash'); this.banner(`<div class="vs"><div class="fxmini">${this.mini(e.ia)}</div><b>${e.pa}</b><i>VS</i><b>${e.pb}</b><div class="fxmini">${this.mini(e.ib)}</div></div>`, 'battle', 1150); return 1100;
-      case 'dmg': { const r = this.rect(e.u); if (!r) return 0; Sfx.play('hit'); this.at(r, 'shake', '', 450); this.at(r, 'num', `<b>-${e.n}</b>${e.tot != null && e.tot !== e.n ? `<small>누적 ${e.tot}</small>` : ''}`, 1000); return 380; }
+      case 'dmg': { const r = this.rect(e.u); if (!r) return 0; Sfx.play('hit'); this.at(r, 'shake', '', 450); this.at(r, 'num', `<b>-${e.v}</b>${e.tot != null && e.tot !== e.v ? `<small>누적 ${e.tot}</small>` : ''}`, 1000); return 380; }
       case 'gone': { const r = this.rects[e.u] || this.rect(e.u); if (!r) return 0; Sfx.play('break'); this.at(r, 'ghost vanish', this.mini(e.id), 700); return 520; }
       case 'win': Sfx.play('win'); this.banner(`<b>${esc(this.pname(e.p))} 승리!</b>`, 'big win', 2200); return 1800;
     }
