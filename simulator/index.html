@@ -1684,7 +1684,7 @@ const Engine = (() => {
   function defMatches(d, f) {
     if (!d) return false;
     if (f.or && !f.or.some(g => defMatches(d, g))) return false;
-    if (f.type === 'unit' && d.type !== 'unit') return false;
+    if (f.type && f.type !== 'all' && d.type !== f.type) return false;   // 유닛/커맨드 구분 (예전엔 유닛만 걸러 커맨드 조건에 유닛도 통과함)
     if (f.ace != null && (d.sub === 'ace') !== !!f.ace) return false;
     if (f.costLE != null && !(d.cost <= f.costLE)) return false;
     if (f.costNE != null && d.cost === f.costNE) return false;
@@ -2412,7 +2412,9 @@ const Engine = (() => {
           q.steps.splice(q.i, 1 + (same ? k : 0), choose);
           return execStep(s, q, q.steps[q.i]);
         }
-        if (st.need && !costPayable(s, q, st.need)) { log(s, '비용을 낼 수 없어 이후 효과 없음'); return 'abort'; }
+        if (st.need && !costPayable(s, q, st.need)) {
+          const why = st.need.some(x => x.inCost) && isSkillCost(q) && hasRule(s, q.p, 'skillAltCmd') ? (s.active !== q.p ? ' (대체 스킬 코스트는 내 턴에만)' : ' (대체 스킬 코스트: 패에 커맨드 카드가 없음)') : '';
+          log(s, `${DEFS[q.id].name}: 스킬 코스트를 낼 수 없어 이후 효과 없음${why}`); return 'abort'; }
         return st.done ? 'ok' : (st.done = 1, ask(s, q, { kind: 'confirm', text: st.text, cost: st.cost }));
       case 'paid': if ((st.force || DEFS[q.id].ab[q.ai]?.cost?.some(x => x.inCost)) && isSkillCost(q)) fire(s, 'skillUsed', { uid: q.src, p }); return 'ok';
       case 'tgt': {
