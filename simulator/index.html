@@ -2389,6 +2389,16 @@ const Engine = (() => {
     if (st.may && !st.asked && st.op !== 'playFree') { st.asked = 1; return ask(s, q, { kind: 'confirm', text: st.op === 'draw' ? `${st.n}장 뽑을까요?` : '이 효과를 쓸까요?', may: 1, player: st.who === 'opp' ? 1 - p : p }); }
     switch (st.op) {
       case 'confirm':
+        // 처리 중에 내는 【スキル】 코스트: 「다음 스킬은 코스트 없이」를 적용하고, 낸 뒤 「스킬을 발동했을 때」가 발동하도록 표시
+        if (st.need?.some(x => x.inCost) && !st.done && !st.skillPrep && isSkillCost(q)) {
+          st.skillPrep = 1;
+          const k = st.need.length, after = q.steps.slice(q.i + 1, q.i + 1 + k);
+          const same = after.length === k && after.every((x, j) => x.op === st.need[j].op);
+          if (same) {
+            q.steps.splice(q.i + 1 + k, 0, { op: 'paid', force: 1 });
+            if ((s.turn.flags || {}).freeSkill === q.p + 1) { s.turn.flags.freeSkill = 0; log(s, `${DEFS[q.id].name}: 스킬 코스트를 내지 않고 발동`); q.steps.splice(q.i + 1, k); st.need = null; }
+          }
+        }
         // 「【スキル】を発動することで」/「【スキル】を12回まで」의 코스트: 대체 코스트(패의 커맨드 드롭)를 고를 수 있으면 고르게 함
         if (st.need?.some(x => x.inCost) && !st.done && skillAltOk(s, q)) {
           const k = st.need.length, after = q.steps.slice(q.i + 1, q.i + 1 + k);
@@ -2401,7 +2411,7 @@ const Engine = (() => {
         }
         if (st.need && !costPayable(s, q, st.need)) { log(s, '비용을 낼 수 없어 이후 효과 없음'); return 'abort'; }
         return st.done ? 'ok' : (st.done = 1, ask(s, q, { kind: 'confirm', text: st.text, cost: st.cost }));
-      case 'paid': if (DEFS[q.id].ab[q.ai].cost?.some(x => x.inCost)) fire(s, 'skillUsed', { uid: q.src, p }); return 'ok';
+      case 'paid': if ((st.force || DEFS[q.id].ab[q.ai]?.cost?.some(x => x.inCost)) && isSkillCost(q)) fire(s, 'skillUsed', { uid: q.src, p }); return 'ok';
       case 'tgt': {
         const n = st.n, zone = st.zone;
         const isCmd = DEFS[q.id]?.type === 'command';
@@ -2428,7 +2438,7 @@ const Engine = (() => {
         if (st.to === 'evtCard') { const f = srcCard(s, q.ctx.evt); if (f && f.zone === 'drop' && (!st.f || defMatches(DEFS[f.c.id], st.f))) moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
         if (st.to === 'ycard') { const f = srcCard(s, q.ctx.yumemiUid); if (f && f.zone === 'drop' && (!st.f || defMatches(DEFS[f.c.id], st.f))) moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
         // 「このカード/このユニットを~」인데 이미 필드에 없으면(드롭된 뒤 발동, 커맨드 등) 그 카드가 있는 곳에서 옮김
-        if (st.to === 'card' || (st.to === 'self' && !findUnit(s, q.src) && ['drop', 'hand', 'energy'].includes(srcCard(s, q.src)?.zone))) { const f = srcCard(s, q.src); if (f && f.zone !== 'territory') moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
+        if (st.to === 'card' || (st.to === 'self' && !findUnit(s, q.src) && ['drop', 'hand', 'energy'].includes(srcCard(s, q.src)?.zone))) { const f = srcCard(s, q.src); if (f && f.zone !== 'territory' && f.zone !== to) moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
         if (st.to === 'T') {
           for (const uid of q.ctx.T) { const f = srcCard(s, uid); if (f && f.zone !== 'territory' && f.zone !== 'att' && !(st.fieldOnly && f.zone !== 'field')) moveCard(s, f.c, f.owner, f.zone, to); }
           return 'ok';
@@ -2454,7 +2464,7 @@ const Engine = (() => {
         const w = st.who === 'opp' ? 1 - p : p, W = s.players[w];
         const cands = W.hand.filter(c => c.uid !== st.notUid && (!st.f || defMatches(DEFS[c.id], st.f))).map(c => c.uid);
         if (!cands.length || (st.opt && cands.length < st.n)) { q.ctx.declined = 1; return 'ok'; }
-        if (cands.length <= st.n) { for (const uid of cands) { const c = W.hand.find(c => c.uid === uid); moveCard(s, c, w, 'hand', 'drop'); fire(s, 'discarded', { uid, p: w, card: c }); if (st.inCost) fire(s, 'skillDrop', { uid, p: w, card: c }); } return 'ok'; }
+        if (cands.length <= st.n) { for (const uid of cands) { const c = W.hand.find(c => c.uid === uid); moveCard(s, c, w, 'hand', 'drop'); fire(s, 'discarded', { uid, p: w, card: c }); if (st.inCost && isSkillCost(q)) fire(s, 'skillDrop', { uid, p: w, card: c }); } return 'ok'; }
         return ask(s, q, { kind: 'pick', cands, min: st.n, max: st.n, text: `패에서 ${st.n}장을 골라 드롭하세요`, act: 'discard', zone: 'hand', player: w, owner: w, inCost: st.inCost });
       }
       case 'scout': { const n = Math.min(st.n, P.deck.length); if (!n) return 'ok'; q.i++; s.queue.unshift(q); s.pending = { type: 'scout', player: p, n }; return 'wait'; }
@@ -2495,7 +2505,7 @@ const Engine = (() => {
       case 'deckEnergy': for (let i = 0; i < st.n && P.deck.length; i++) { s._moved.push(P.deck[0].id); P.energy.push({ ...P.deck.shift(), rested: false }); } log(s, `${P.name}: 덱 위 ${st.n}장을 에너지로`); return 'ok';
       case 'lifeEnergy': for (let i = 0; i < st.n && P.life.length; i++) P.energy.push({ ...P.life.shift(), rested: false }); log(s, `${P.name}: 라이프 맨 앞을 에너지로 (남은 라이프 ${P.life.length})`); return 'ok';
       case 'lifeHand': for (let i = 0; i < st.n && P.life.length; i++) P.hand.push(P.life.shift()); log(s, `${P.name}: 라이프 맨 앞을 패로 (남은 라이프 ${P.life.length})`); return 'ok';
-      case 'lifeDrop': { const W = st.who === 'opp' ? O : P; for (let i = 0; i < st.n && W.life.length; i++) { const c = W.life.shift(); W.drop.push(c); s._moved.push(c.id); if (st.inCost) fire(s, 'skillDrop', { uid: c.uid, p, card: c }); } log(s, `${W.name}: 라이프 맨 앞을 드롭 (남은 라이프 ${W.life.length})`); return 'ok'; }
+      case 'lifeDrop': { const W = st.who === 'opp' ? O : P; for (let i = 0; i < st.n && W.life.length; i++) { const c = W.life.shift(); W.drop.push(c); s._moved.push(c.id); if (st.inCost && isSkillCost(q)) fire(s, 'skillDrop', { uid: c.uid, p, card: c }); } log(s, `${W.name}: 라이프 맨 앞을 드롭 (남은 라이프 ${W.life.length})`); return 'ok'; }
       case 'turnFlag': (s.turn.flags ||= {})[st.flag] = p + 1; log(s, `이번 턴: ${{ cosEnergy: '코스프레를 패와 에너지에서 고를 수 있음', cosStand: '코스프레로 등장하는 유닛은 스탠드로 등장', cosBusterStand: '코스프레로 등장하는 버스터 유닛은 스탠드로 등장', noPlayerDmg: '플레이어가 받는 데미지 0', dropToRemove: '내 카드가 드롭될 때 대신 리무브', lifeToHandNonShot: '샷 아이콘이 아닌 라이프 카드가 데미지로 드롭될 때 대신 패로', dropAsHand: '드롭 존 카드를 패처럼 에너지에 놓거나 플레이 가능', brightEnergy: '이번 턴 1번, 에너지를 브라이트로 드롭할 카드로 고를 수 있음' }[st.flag] || st.flag}`); return 'ok';
       case 'cosplayNow': { const u = findUnit(s, q.src); if (u) { q.i++; s.queue.unshift(q); s.queue.unshift({ t: 'cos', p, uids: [u.uid], now: 1 }); return 'wait'; } return 'ok'; }
       case 'attachSelf': {
@@ -2922,7 +2932,7 @@ const Engine = (() => {
     if (sel.length < pd.min || sel.length > pd.max || !sel.every(u => pd.cands.includes(u))) { s.pending = pd; fail(`${pd.min === pd.max ? pd.min : `${pd.min}~${pd.max}`}장을 골라 주세요`); }
     if (!sel.length) q.ctx.declined = 1;
     if (pd.into === 'T') { q.ctx.T = pd.add ? [...(q.ctx.T || []), ...sel] : sel; q.ctx.Tzone = pd.zone; noteT(s, q); if (pd.save) q.ctx[pd.save] = sel; if (sel.length) log(s, `대상: ${sel.map(u => name(srcCard(s, u).c)).join(', ')}`); }
-    else if (pd.act === 'discard') { for (const uid of sel) { const W = s.players[pd.owner], c = W.hand.find(c => c.uid === uid); moveCard(s, c, pd.owner, 'hand', 'drop'); fire(s, 'discarded', { uid, p: pd.owner, card: c }); if (pd.inCost) fire(s, 'skillDrop', { uid, p: pd.owner, card: c }); } if (sel.length) fire(s, 'handDrop', { p: pd.owner }); }
+    else if (pd.act === 'discard') { for (const uid of sel) { const W = s.players[pd.owner], c = W.hand.find(c => c.uid === uid); moveCard(s, c, pd.owner, 'hand', 'drop'); fire(s, 'discarded', { uid, p: pd.owner, card: c }); if (pd.inCost && isSkillCost(q)) fire(s, 'skillDrop', { uid, p: pd.owner, card: c }); } if (sel.length) fire(s, 'handDrop', { p: pd.owner }); }
     else if (pd.act === 'reveal') { log(s, `${P.name}: 패 공개 → ${sel.map(u => name(P.hand.find(c => c.uid === u))).join(', ')}`); q.ctx.milled = sel.map(u => P.hand.find(c => c.uid === u).id); }
     else if (pd.act === 'toRemove') { q.ctx.milled = []; for (const uid of sel) { const f = srcCard(s, uid); q.ctx.milled.push(f.c.id); moveCard(s, f.c, f.owner, f.zone, 'remove'); } }
     else if (pd.act === 'toTop') for (const uid of sel) { const f = srcCard(s, uid); moveCard(s, f.c, f.owner, f.zone, 'deckTop'); }
