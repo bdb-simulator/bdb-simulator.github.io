@@ -3626,7 +3626,7 @@ def parse_card(d):
         if a.get('k') != 'auto':
             continue
         txt = ''.join(lines[i] for i in a.get('li', []) if i < len(lines))
-        if '手札からこのカードを登場' in txt or ('手札からこのカードをドロップすることで' in txt and a.get('on') == 'battle'):
+        if '手札からこのカードを登場' in txt or ('手札からこのカードをドロップすることで' in txt and a.get('on') == 'battle') or (re.search(r'(?:あなたの)?手札のこのカードを(?:登場|ドロップ|コストを払わずに?プレイ)', txt) and a.get('on') not in ('discarded', 'handDrop')):
             a['fromHand'] = 1; d['handTrig'] = 1
         if 'エナジーのこのカード' in txt and a.get('on') not in ('skillDrop',) and a.get('src') != 'self':
             a['fromEnergy'] = 1; d['energyTrig'] = 1
