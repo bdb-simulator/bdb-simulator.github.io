@@ -1669,6 +1669,14 @@ const Engine = (() => {
      커맨드(play): 플레이하면 실행. */
   const abOf = id => DEFS[id]?.ab || [];
   const COLORS = ['red', 'blue', 'white', 'black'];
+  /** 카드가 키워드 【X】를 직접 가졌는지: 「【X】を持つ~」처럼 다른 카드를 가리키는 말은 제외 */
+  const KWT_CACHE = new Map();
+  function hasKwText(d, kw) {
+    const key = d.id + '|' + kw; if (KWT_CACHE.has(key)) return KWT_CACHE.get(key);
+    const re = new RegExp('【' + kw + '[^】]*】(?!を持|でない|がある|が付|が出|の)');
+    const r = [...(d.text || []), d.tfx?.text || ''].some(t => re.test(t));
+    KWT_CACHE.set(key, r); return r;
+  }
   function defMatches(d, f) {
     if (!d) return false;
     if (f.or && !f.or.some(g => defMatches(d, g))) return false;
@@ -1695,7 +1703,7 @@ const Engine = (() => {
     if (f.attr && !(d.attr || []).some(a => f.attr.includes(a))) return false;
     if (f.color && ![d.color, ...(d.xcolors || [])].some(c => Array.isArray(f.color) ? f.color.includes(c) : c === f.color)) return false;
     if (f.attrN != null && (d.attr || []).length !== f.attrN) return false;
-    if (f.skill && !(d.text || []).some(t => t.includes('【スキル】'))) return false;
+    if (f.skill && !hasKwText(d, 'スキル')) return false;
     if (f.aceOrBuster && !(d.sub === 'ace' || d.icon === 'buster')) return false;
     if (f.cos && !d.cos) return false;
     if (f.notIcon && d.icon === f.notIcon) return false;
@@ -1704,7 +1712,7 @@ const Engine = (() => {
     if (f.yumemi && !d.yumemi) return false;
     if (f.magia && !d.magia) return false;
     if (f.kamui && !d.kamui) return false;
-    if (f.kwText && !((d.text || []).some(t => t.includes('【' + f.kwText)) || (d.tfx?.text || '').includes('【' + f.kwText))) return false;
+    if (f.kwText && !hasKwText(d, f.kwText)) return false;
     if (f.makein && !d.makein) return false;
     if (f.log && !d.log) return false;
     if (f.costEQ != null && d.cost !== f.costEQ) return false;
@@ -1848,6 +1856,7 @@ const Engine = (() => {
         case 'brightDropF': ok = !!ctx.brightDrop && defMatches(DEFS[ctx.brightDrop], v); break;
         case 'fromEnergy': ok = ctx.from === 'energy'; break;
         case 'oppDmgTurn': ok = !!s.turn.dmgP?.[1 - p]; break;
+        case 'tAnyOwn': ok = (ctx.T || []).some(uid => findUnit(s, uid)?.owner === ctx.p); break;
         case 'tF': { const t = srcCard(s, ctx.T?.[0]); ok = !!t && defMatches(DEFS[t.c.id], v); break; }
         case 'lifeEq': ok = P.life.length === O.life.length; break;
         case 'oppEnergyMore': ok = O.energy.length - P.energy.length >= v; break;
@@ -2148,6 +2157,7 @@ const Engine = (() => {
       if (st.op === 'classRemove' && P.drop.filter(c => c.id === 'CLASS').length < st.n) return false;
       if (st.op === 'classDropSelf' && ((findUnit(s, q.src)?.att || []).filter(a => a.id === 'CLASS').length < st.n)) return false;
       if ((st.op === 'lifeDrop' || st.op === 'lifeHand') && P.life.length < st.n) return false;
+      if (st.op === 'closeTerr' && !s.players[st.who === 'opp' ? 1 - q.p : q.p].territory.open) return false;   // 이미 닫혀 있으면 「닫는 것으로」 비용을 낼 수 없음
       // 정해진 장수를 골라 옮기는 비용 (「드롭 존의 ~를 5장 리무브」 등): 고를 카드가 모자라면 낼 수 없음
       if (st.op === 'pick' && !st.upto && st.n > 0) {
         const pool = st.from === 'field' ? s.field.filter(u => u.owner === q.p && unitMatches(s, u, st.f || {}, q.p, q.src, q.ctx))
@@ -2396,7 +2406,7 @@ const Engine = (() => {
         if (st.op === 'drop' && st.to?.all) { const n0 = unitsOf(s, 1 - p).length; for (const u of unitsFor(s, q, st.to)) moveCard(s, u, u.owner, 'field', to); q.ctx.droppedOpp = n0 - unitsOf(s, 1 - p).length; return 'ok'; }
         if (st.to === 'evtCard') { const f = srcCard(s, q.ctx.evt); if (f && f.zone === 'drop' && (!st.f || defMatches(DEFS[f.c.id], st.f))) moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
         if (st.to === 'ycard') { const f = srcCard(s, q.ctx.yumemiUid); if (f && f.zone === 'drop' && (!st.f || defMatches(DEFS[f.c.id], st.f))) moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
-        if (st.to === 'card') { const f = srcCard(s, q.src); if (f && f.zone !== 'territory') moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
+        if (st.to === 'card' || (st.to === 'self' && !findUnit(s, q.src) && DEFS[q.id]?.type === 'command')) { const f = srcCard(s, q.src); if (f && f.zone !== 'territory') moveCard(s, f.c, f.owner, f.zone, to); return 'ok'; }
         if (st.to === 'T') {
           for (const uid of q.ctx.T) { const f = srcCard(s, uid); if (f && f.zone !== 'territory' && f.zone !== 'att' && !(st.fieldOnly && f.zone !== 'field')) moveCard(s, f.c, f.owner, f.zone, to); }
           return 'ok';
