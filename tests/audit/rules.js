@@ -1,0 +1,48 @@
+// 룰북 항목별 상황 테스트: 상황을 만들고 엔진 결과가 룰과 같은지 확인
+const {Engine,DEFS,U,C,base,auto}=require('../gnosia/h.js');
+const vanilla=Object.keys(DEFS).filter(k=>DEFS[k].type==='unit'&&!(DEFS[k].ab||[]).length&&!(DEFS[k].icons||[]).length&&!DEFS[k].bright&&!DEFS[k].icon);
+const V=pw=>vanilla.find(k=>DEFS[k].power===pw)||vanilla[0];
+let pass=0, fail=0; const T=(name,f)=>{ try{ const r=f(); if(r===true){pass++; console.log('OK ',name);} else {fail++; console.log('NG ',name,JSON.stringify(r).slice(0,300));} }catch(e){ fail++; console.log('ERR',name,e.message); } };
+const toEnd=s=>{ s=Engine.apply(s,{type:'NEXT_PHASE'}); if(s.phase==='attack') s=Engine.apply(s,{type:'NEXT_PHASE'}); return s; };
+T('703-3a 선공 첫 턴 드로우 없음, 후공 첫 턴 드로우', ()=>{ let s=base(); const p=s.active; const h0=s.players[p].hand.length; s.field=[];
+  const o=1-p, ho=s.players[o].hand.length; s=toEnd(s); s=auto(s); return s.active===o && s.players[o].hand.length===ho+1 && s.turnCount===2 || {active:s.active,ho,now:s.players[o].hand.length}; });
+T('702-1 턴 시작 시 턴 플레이어 유닛·에너지만 스탠드', ()=>{ let s=base(); const p=s.active,o=1-p; s.field=[U(V(3000),p,{uid:'a',rested:true}),U(V(3000),o,{uid:'b',rested:true})]; s.players[o].energy.forEach(e=>e.rested=true); s.players[p].energy.forEach(e=>e.rested=true);
+  s=toEnd(s); s=auto(s); const a=s.field.find(u=>u.uid==='a'), b=s.field.find(u=>u.uid==='b'); return (b.rested===false&&a.rested===true&&s.players[o].energy.every(e=>!e.rested)&&s.players[p].energy.every(e=>e.rested)) || {a:a.rested,b:b.rested}; });
+T('706-3 엔드 페이즈에 모든 유닛 데미지 0', ()=>{ let s=base(); const p=s.active,o=1-p; s.field=[U(V(5000),p,{uid:'a'}),U(V(5000),o,{uid:'b'})]; s.field[0].damage=2000; s.field[1].damage=3000; s=toEnd(s); s=auto(s); return s.field.every(u=>u.damage===0)||s.field.map(u=>u.damage); });
+T('706-5 손패 상한 5장 초과분은 턴 플레이어가 버림', ()=>{ let s=base(); const p=s.active,o=1-p; s.field=[]; s.players[p].hand=[...Array(8)].map(()=>C(V(3000))); s.players[o].hand=[...Array(8)].map(()=>C(V(3000))); s=toEnd(s);
+  const pd=s.pending; return (pd?.type==='discard'&&pd.player===p&&pd.count===3) || pd; });
+T('1303-3 파워 0 이하 유닛은 파괴', ()=>{ let s=base(); const p=s.active; s.field=[U(V(3000),p,{uid:'a'})]; s.field[0].tmp.power=-3000; s=Engine.apply(s,{type:'NEXT_PHASE'}); return !s.field.length || s.field; });
+T('1303-2 데미지가 있는 유닛 파워가 내려가 데미지 이상이 되면 파괴', ()=>{ let s=base(); const p=s.active; s.field=[U(V(5000),p,{uid:'a'})]; s.field[0].damage=3000; s.field[0].tmp.power=-2000; s=Engine.apply(s,{type:'NEXT_PHASE'}); return !s.field.length || s.field; });
+T('1303-2 데미지 < 파워면 남음', ()=>{ let s=base(); const p=s.active; s.field=[U(V(5000),p,{uid:'a'})]; s.field[0].damage=3000; s=Engine.apply(s,{type:'NEXT_PHASE'}); return s.field.length===1 || s.field; });
+T('1003-2b/c 라이프 데미지: 버스터는 추가 1데미지, 공개 카드는 드롭', ()=>{ let s=base(); const p=s.active,o=1-p; s.phase='attack'; const bu=Object.keys(DEFS).find(k=>DEFS[k].icon==='buster');
+  s.field=[U(V(3000),p,{uid:'a'})]; s.players[o].life=[C(bu),C(V(3000)),C(V(3000)),C(V(3000))]; const d0=s.players[o].drop.length;
+  s=Engine.apply(s,{type:'ATTACK',attacker:'a',target:'player'}); s=auto(s); return (s.players[o].life.length===2&&s.players[o].drop.length===d0+2) || {life:s.players[o].life.length,drop:s.players[o].drop.length-d0}; });
+T('1003-2a 라이프 0장에서 데미지 → 패배', ()=>{ let s=base(); const p=s.active,o=1-p; s.phase='attack'; s.field=[U(V(3000),p,{uid:'a'})]; s.players[o].life=[]; s=Engine.apply(s,{type:'ATTACK',attacker:'a',target:'player'}); s=auto(s); return s.winner===p || {w:s.winner}; });
+T('804 배틀: 파워만큼 서로 데미지, 데미지 ≥ 파워면 파괴', ()=>{ let s=base(); const p=s.active,o=1-p; s.phase='attack'; s.field=[U(V(5000),p,{uid:'a'}),U(V(3000),o,{uid:'b',rested:true})]; s=Engine.apply(s,{type:'ATTACK',attacker:'a',target:'b'}); s=auto(s);
+  const a=s.field.find(u=>u.uid==='a'); return (!s.field.find(u=>u.uid==='b') && a && a.damage===3000) || s.field; });
+T('804 같은 파워: 둘 다 파괴', ()=>{ let s=base(); const p=s.active,o=1-p; s.phase='attack'; s.field=[U(V(3000),p,{uid:'a'}),U(V(3000),o,{uid:'b',rested:true})]; s=Engine.apply(s,{type:'ATTACK',attacker:'a',target:'b'}); s=auto(s); return !s.field.length || s.field; });
+T('804-2 블리츠: 먼저 데미지를 줘 상대가 파괴되면 반격 없음', ()=>{ const bl='1817'; let s=base(); const p=s.active,o=1-p; s.phase='attack'; s.players[p].energy=[...Array(6)].map((_,i)=>({uid:'ze'+i,id:bl,rested:false}));
+  const pw=Engine.power(s,U(bl,p)); s.field=[U(bl,p,{uid:'a'}),U(V(3000),o,{uid:'b',rested:true})]; s=Engine.apply(s,{type:'ATTACK',attacker:'a',target:'b'}); s=auto(s); const a=s.field.find(u=>u.uid==='a'); return (a&&a.damage===0&&!s.field.find(u=>u.uid==='b')) || {pw,a,f:s.field.map(u=>[u.uid,u.damage])}; });
+T('804-4 블리츠로 상대가 살아남으면 일반 데미지를 서로 줌', ()=>{ const bl='1817'; let s=base(); const p=s.active,o=1-p; s.phase='attack'; s.players[p].energy=[...Array(6)].map((_,i)=>({uid:'ze'+i,id:bl,rested:false}));
+  const big=vanilla.filter(k=>DEFS[k].power>=12000).sort((x,y)=>DEFS[y].power-DEFS[x].power)[0]; if(!big) return 'no big'; s.field=[U(bl,p,{uid:'a'}),U(big,o,{uid:'b',rested:true})]; const pa=Engine.power(s,s.field[0]);
+  s=Engine.apply(s,{type:'ATTACK',attacker:'a',target:'b'}); s=auto(s); const b=s.field.find(u=>u.uid==='b'); return (b&&b.damage===pa&&!s.field.find(u=>u.uid==='a')) || {pa,bp:DEFS[big].power,f:s.field.map(u=>[u.uid,u.damage])}; });
+T('406-6b 다시 필드에 나온 유닛은 데미지 0', ()=>{ let s=base(); const p=s.active; s.field=[U(V(5000),p,{uid:'a'})]; s.field[0].damage=2000; const c={uid:'a',id:s.field[0].id};
+  s.field=[]; s.players[p].hand.push(c); s.players[p].energy=[...Array(8)].map((_,i)=>({uid:'ze'+i,id:s.field[0]?.id||c.id,rested:false})); s=Engine.apply(s,{type:'PLAY',uid:'a'}); s=auto(s); const u=s.field.find(u=>u.uid==='a'); return (u&&u.damage===0) || u; });
+T('1402 데코이: 레스트 상태 데코이가 있으면 다른 대상 공격 불가', ()=>{ const dc=Object.keys(DEFS).find(k=>DEFS[k].type==='unit'&&(DEFS[k].text||[]).some(t=>/^【デコイ】/.test(t))&&(DEFS[k].ab||[]).every(a=>a.k==='perm'));
+  let s=base(); const p=s.active,o=1-p; s.phase='attack'; s.field=[U(V(5000),p,{uid:'a'}),U(dc,o,{uid:'d',rested:true}),U(V(3000),o,{uid:'b',rested:true})];
+  let blocked=false; try{ Engine.apply(structuredClone(s),{type:'ATTACK',attacker:'a',target:'player'}); }catch(e){ blocked=true; } let b2=false; try{ Engine.apply(structuredClone(s),{type:'ATTACK',attacker:'a',target:'b'}); }catch(e){ b2=true; } return (blocked&&b2) || {dc,blocked,b2}; });
+T('1304-2a 동시에 발동한 자동 능력은 턴 플레이어 것부터', ()=>{
+  // 턴 플레이어 유닛 등장 → 내 「このユニットが登場した時」 + 상대 「相手のユニットが登場した時」
+  const mine=Object.keys(DEFS).find(k=>DEFS[k].type==='unit'&&DEFS[k].cost<=4&&(DEFS[k].ab||[]).length===1&&DEFS[k].ab[0].on==='enter'&&DEFS[k].ab[0].src==='self'&&!(DEFS[k].ab[0].if||[]).length&&DEFS[k].ab[0].do.every(x=>x.op==='draw'));
+  const opp=Object.keys(DEFS).find(k=>DEFS[k].type==='unit'&&(DEFS[k].ab||[]).length===1&&DEFS[k].ab[0].on==='enter'&&DEFS[k].ab[0].src==='opp'&&!(DEFS[k].ab[0].if||[]).length);
+  if(!mine||!opp) return {mine,opp};
+  let s=base(); const p=s.active,o=1-p; s.field=[U(opp,o,{uid:'o1'})]; s.players[p].hand=[{uid:'m1',id:mine}]; s.players[p].energy=[...Array(6)].map((_,i)=>({uid:'ze'+i,id:mine,rested:false}));
+  s=Engine.apply(s,{type:'PLAY',uid:'m1'}); s=auto(s); const L=s.log.map(l=>l.m); const i1=L.findIndex(m=>m.includes('[자동] '+DEFS[mine].name)), i2=L.findIndex(m=>m.includes('[자동] '+DEFS[opp].name));
+  return (i1>=0&&i2>=0&&i1<i2) || {i1,i2,mine:DEFS[mine].name,opp:DEFS[opp].name,L:L.slice(-6)}; });
+T('902-3 테리토리 개방 코스트 = 테리토리 코스트 − 에이스 코스트', ()=>{ let s=base(); const p=s.active; const P=s.players[p]; P.territory={id:P.territory.id,open:false};
+  const tc=DEFS[P.territory.id].cost; const ace=Object.keys(DEFS).find(k=>DEFS[k].type==='unit'&&DEFS[k].sub==='ace'&&(DEFS[k].titles||[]).some(t=>(DEFS[P.territory.id].titles||[]).includes(t))&&DEFS[k].cost<tc&&!(DEFS[k].ab||[]).length);
+  if(!ace) return 'no ace'; P.hand=[{uid:'ac',id:ace}]; P.energy=[...Array(10)].map((_,i)=>({uid:'ze'+i,id:ace,rested:false})); s.field=[];
+  s=Engine.apply(s,{type:'PLAY',uid:'ac'}); const pd=s.pending; if(pd?.type!=='territory') return {pd:pd?.type, log:s.log.slice(-3).map(l=>l.m)};
+  const r0=s.players[p].energy.filter(e=>e.rested).length; s=Engine.apply(s,{type:'TERRITORY',open:true}); s=auto(s); const r1=s.players[p].energy.filter(e=>e.rested).length;
+  return (s.players[p].territory.open && r1-r0===tc-DEFS[ace].cost) || {open:s.players[p].territory.open,paid:r1-r0,expect:tc-DEFS[ace].cost}; });
+console.log(`통과 ${pass} / 실패 ${fail}`);

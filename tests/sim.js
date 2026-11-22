@@ -5,26 +5,51 @@ const code = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const ctx = {};
 new Function('ctx', code + '\nctx.Engine=Engine;ctx.DEFS=DEFS;ctx.RED=DECK_RED;ctx.BLUE=DECK_BLUE;ctx.DECKS=DECKS;ctx.RULES=RULES;')(ctx);
 const { Engine, DEFS, RED, BLUE, RULES, DECKS } = ctx;
-const SAMPLES = Object.keys(DECKS).filter(k => DECKS[k].sample);
-const PAIRS = [['bocchi','bocchi'],['bocchi','red'],['blue','bocchi'],['red','blue'], null, null, null, null];
 const pick = a => a[Math.floor(Math.random() * a.length)];
+const SAMPLES = Object.keys(DECKS).filter(k => DECKS[k].sample);
+// 전체 카드 DB에서 텍스트 능력(ab)이 있는 카드로 무작위 덱을 만들어 섞어 넣음
+const DB = JSON.parse(fs.readFileSync(require('path').join(require('path').dirname(process.argv[2]), 'cards_db.json'), 'utf8'));
+for (const [k, d] of Object.entries(DB.defs)) if (!DEFS[k]) DEFS[k] = Object.assign({ id: k, icon: null, attr: [], icons: [], titles: [] }, d);
+const ABU = DB.base.map(String).filter(k => DEFS[k].ab && DEFS[k].type !== 'territory');
+const ABT = DB.base.map(String).filter(k => DEFS[k].ab && DEFS[k].type === 'territory');
+for (let i = 0; i < 40; i++) {
+  const main = []; for (let j = 0; j < 12; j++) main.push([pick(ABU), 4]);
+  DECKS['fz' + i] = { label: 'fuzz' + i, territory: pick(ABT), main, fuzz: 1 };
+}
+const CB = (process.argv[3] || '').startsWith('cb:') ? DB.collabs.findIndex(n => n.includes(process.argv[3].slice(3))) : -1;
+if (CB >= 0) {
+  const U = DB.base.map(String).filter(k => DEFS[k].cb === CB && DEFS[k].type !== 'territory');
+  const T = DB.base.map(String).filter(k => DEFS[k].cb === CB && DEFS[k].type === 'territory');
+  for (let i = 0; i < 40; i++) { const main = []; for (let j = 0; j < 12; j++) main.push([pick(U), 4]); DECKS['fz' + i] = { label: 'cb' + i, territory: pick(T), main, fuzz: 1 }; }
+  console.log('작품:', DB.collabs[CB], U.length, T.length);
+}
+const FUZZ = Object.keys(DECKS).filter(k => DECKS[k].fuzz);
+const PAIRS = (process.argv[3] === 'fuzz' || (process.argv[3] || '').startsWith('cb:')) ? [0] : [['bocchi','bocchi'],['bocchi','red'],['blue','bocchi'],['red','blue'], null, null, null, null];
 
+const UNH = {};
+process.on('exit', () => { if (Object.keys(UNH).length) console.log('UNHANDLED', JSON.stringify(UNH)); });
 function check(s) {
+  for (const l of (s.log || []).slice(-8)) { const t = typeof l === 'string' ? l : l.m || ''; const m = /처리하지 못한 효과: (\w+)/.exec(t); if (m) UNH[m[1]] = (UNH[m[1]] || 0) + 1; }
   for (let p = 0; p < 2; p++) {
     const P = s.players[p];
-    const n = P.deck.length + P.hand.length + P.life.length + P.energy.length + P.drop.length + (P.remove||[]).length
-      + s.field.filter(u => u.owner === p).length + (s.pending?.type === 'shot' && s.pending.player === p ? 1 : 0);
+    const real = z => (z || []).filter(c => c.id !== 'CLASS').length;
+    const n = real(P.set) + real(P.deck) + real(P.hand) + real(P.life) + real(P.energy) + real(P.drop) + real(P.remove)
+      + s.field.filter(u => u.owner === p).reduce((t, u) => t + 1 + real(u.att), 0) + real(P.territory.att)
+      + (s.pending?.type === 'shot' && s.pending.player === p ? 1 : 0);
     if (n !== s.size[p]) throw new Error(`카드 수 불일치 P${p + 1}: ${n} / ${s.size[p]}`);
   }
-  for (const u of s.field) { const pw = Engine.power(s, u); if (pw <= 0 || u.damage >= pw) throw new Error('파괴되지 않은 유닛'); }
+  { const seen = new Set(); const all = []; for (let q = 0; q < 2; q++) { const P = s.players[q]; for (const z of ['set','deck','hand','life','energy','drop','remove']) for (const c of P[z] || []) all.push(c.uid); for (const c of P.territory.att || []) all.push(c.uid); }
+    for (const u of s.field) { all.push(u.uid); for (const c of u.att || []) all.push(c.uid); }
+    for (const x of all) { if (seen.has(x)) throw new Error('같은 카드(uid 중복)가 두 곳에 있음: ' + x); seen.add(x); } }
+  for (const u of s.field) { if (Engine.hasKw(s, u, 'indestructible')) continue; const pw = Engine.power(s, u); if (pw <= 0 || u.damage >= pw) throw new Error('파괴되지 않은 유닛'); }
   if (s.winner == null && !s.pending && (s.queue.length || s.conts.length)) throw new Error('처리 대기열이 남은 채 멈춤');
 }
 
 const st = { games: 0, turns: 0, wins: [0, 0], events: {} };
 const ev = k => st.events[k] = (st.events[k] || 0) + 1;
-console.log('덱 검사:', Object.fromEntries(Object.entries(DECKS).map(([k,d])=>[k,Engine.validateDeck(d)])));
+if (PAIRS[0] !== 0) console.log('덱 검사:', Object.fromEntries(Object.entries(DECKS).map(([k,d])=>[k,Engine.validateDeck(d)])));
 for (let g = 0; g < 1200; g++) {
-  const pr = PAIRS[g % PAIRS.length] || [pick(SAMPLES), pick(SAMPLES)];
+  const pr = PAIRS[0] === 0 ? [pick(FUZZ), pick(FUZZ)] : PAIRS[g % PAIRS.length] || [pick(SAMPLES), pick(SAMPLES)];
   let s = Engine.newGame(DECKS[pr[0]], DECKS[pr[1]]);
   const size = pr.map(k => DECKS[k].main.reduce((t, [, n]) => t + n, 0));
   s.size = size;
@@ -38,10 +63,11 @@ for (let g = 0; g < 1200; g++) {
     if (pd) {
       ev(pd.type);
       const P = s.players[pd.player];
-      if (pd.type === 'mulligan') act({ type: 'MULLIGAN', redraw: Math.random() < .3 });
+      if (pd.type === 'order') { ev('order'); act({ type: 'ORDER', i: Math.floor(Math.random() * pd.items.length) }); }
+      else if (pd.type === 'mulligan') act({ type: 'MULLIGAN', redraw: Math.random() < .3 });
       else if (pd.type === 'block') {
-        const bl = s.field.filter(u => u.owner === pd.player && !u.rested && u.uid !== pd.target);
-        act({ type: 'BLOCK', blocker: Math.random() < .5 ? pick(bl).uid : null });
+        const bl = s.field.filter(u => u.owner === pd.player && !u.rested && u.uid !== pd.target && !Engine.hasKw(s, u, 'noBlock'));
+        { const must = Engine.blockRequired(s, s.pending); act({ type: 'BLOCK', blocker: (must || Math.random() < .5) && bl.length ? pick(bl).uid : null }); }
       } else if (pd.type === 'shot') {
         const d = DEFS[pd.card.id], ts = Engine.targetsFor(s, pd.player, d);
         act({ type: 'SHOT', play: Math.random() < .85, target: ts.length ? pick(ts) : undefined });
@@ -51,9 +77,9 @@ for (let g = 0; g < 1200; g++) {
         act({ type: 'TERRITORY', open: can && Math.random() < .9 });
       } else if (pd.type === 'bright') {
         const b = DEFS[Engine.findUnit(s, pd.uid).id].bright;
-        const ok = P.hand.filter(c => DEFS[c.id].attr.some(a => b.attrs.includes(a)));
+        const ok = P.hand.filter(c => { try { Engine.apply(s, { type: 'BRIGHT', discard: c.uid }); return true; } catch { return false; } });
         // 일부러 틀린 카드도 시도
-        const bad = P.hand.find(c => !ok.includes(c));
+        const bad = P.hand.find(c => !ok.includes(c) && DEFS[c.id].type !== 'command');
         if (bad) { try { Engine.apply(s, { type: 'BRIGHT', discard: bad.uid }); throw new Error('잘못된 브라이트가 통과됨'); } catch (e) { if (e.message.includes('통과')) throw e; } }
         act({ type: 'BRIGHT', discard: Math.random() < .8 ? pick(ok).uid : null });
       } else if (pd.type === 'scout') {
@@ -65,6 +91,38 @@ for (let g = 0; g < 1200; g++) {
         else act({ type: 'SEIKA', uid: pick(Engine.seikaTargets(s, pd.player)) });
       } else if (pd.type === 'flashback') {
         act({ type: 'FLASHBACK', uid: Math.random() < .85 ? pick(Engine.flashTargets(s, pd.player)) : null });
+      } else if (pd.type === 'dress') { ev('dress'); act({ type: 'DRESS', unit: Math.random() < .8 ? pick(pd.cands) : null });
+      } else if (pd.type === 'setPlay') { ev('setPlay'); act({ type: 'PLAY_SET', uid: Math.random() < .8 ? pick(pd.cands) : null });
+      } else if (pd.type === 'cosplay') {
+        ev('cosplay');
+        act({ type: 'COSPLAY', pick: Math.random() < .75 ? pick(pd.cands) : null });
+      } else if (pd.type === 'manual') {
+        ev('manualPrompt');
+        if (Math.random() < .5) { try { act({ type: 'MANUAL', op: 'draw', p: pd.player }); } catch (e) {} }
+        if (s.winner == null) act({ type: 'MANUAL', op: 'done' });
+      } else if (pd.type === 'fx') {
+        ev('fx_' + pd.kind + '_' + (pd.q.steps[pd.q.i]?.op || ''));
+        if (pd.kind === 'confirm') act({ type: 'FX', yes: Math.random() < .8 });
+        else if (pd.kind === 'choose') { const ok = [...Array(pd.n).keys()].filter(k => !pd.dis?.includes(k)); act({ type: 'FX', choice: ok[Math.floor(Math.random() * ok.length)] }); }
+        else {
+          // 일부러 틀린 선택도 시도
+          if (pd.min > 0) { try { Engine.apply(s, { type: 'FX', uids: [] }); throw new Error('잘못된 선택이 통과됨'); } catch (e) { if (e.message.includes('통과')) throw e; } }
+          let done = false;
+          for (let tr = 0; tr < 200 && !done; tr++) {
+            const c = [...pd.cands].sort(() => Math.random() - .5);
+            let k = pd.min + Math.floor(Math.random() * (pd.max - pd.min + 1));
+            if (pd.each) k = Math.min(k, Math.max(pd.min, 1));
+            if (tr > 100) k = pd.min;
+            if (pd.same && tr > 20) {   // 이름이 같은 묶음에서 고르기
+              const idOf = uid => { for (const P of s.players) for (const z of ['hand', 'drop', 'energy', 'life', 'deck']) { const x = (P[z] || []).find(c => c.uid === uid); if (x) return x.id; } return null; };
+              const g = {}; for (const u of pd.cands) (g[DB.defs[idOf(u)]?.name] ||= []).push(u);
+              const grp = Object.values(g).find(x => x.length >= pd.min); if (grp) { c.splice(0, c.length, ...grp); k = pd.min; }
+            }
+            try { act({ type: 'FX', uids: c.slice(0, k) }); done = true; }
+            catch (e) { if (!(pd.each || pd.distinct || pd.same || pd.sumPowLE != null) || !/골라 주세요|고를 수/.test(e.message)) throw e; }
+          }
+          if (!done) throw new Error('유효한 선택을 찾지 못함: ' + JSON.stringify({ min: pd.min, max: pd.max, distinct: pd.distinct, same: pd.same }));
+        }
       } else throw new Error('알 수 없는 선택: ' + pd.type);
       continue;
     }
@@ -76,15 +134,19 @@ for (let g = 0; g < 1200; g++) {
     const p = s.active;
     if (s.phase === 'main') {
       { const Q = s.players[p]; if (!Q.energySet && Q.hand.length && Math.random() < .85) act({ type: 'SET_ENERGY', uid: pick(Q.hand).uid }); }
-      for (let k = 0; k < 6 && !s.pending && s.winner == null; k++) {
+      for (let k = 0; k < 6 && !s.pending && s.winner == null && s.active === p && s.phase === 'main'; k++) {
         const Q = s.players[p];
-        const playable = Q.hand.filter(c => Engine.canPay(Q, DEFS[c.id]));
+        const altOf = c => Engine.altsOf(s, p, DEFS[c.id]).findIndex(a => Engine.altOk(s, p, DEFS[c.id], a));
+        const playable = Q.hand.filter(c => Engine.playAllowed(s, p, DEFS[c.id]) && (Engine.canPay(Q, DEFS[c.id]) || altOf(c) >= 0));
         if (!playable.length) break;
         const c = pick(playable), d = DEFS[c.id], need = Engine.needsTarget(d), ts = Engine.targetsFor(s, p, d);
         if (need && !ts.length) continue;
-        act({ type: 'PLAY', uid: c.uid, target: ts.length ? pick(ts) : undefined });
+        const ai = altOf(c), useAlt = ai >= 0 && (!Engine.canPay(Q, d) || Math.random() < .5);
+        if (useAlt) ev('altPlay');
+        act({ type: 'PLAY', uid: c.uid, target: ts.length ? pick(ts) : undefined, ...(useAlt ? { alt: ai } : {}) });
       }
-      if (!s.pending && s.winner == null && s.phase === 'main') act({ type: 'NEXT_PHASE' });
+      { const sp = s.active === p ? Engine.setPlayable(s, p, 'myMain') : []; if (sp.length && !s.pending && s.winner == null && s.phase === 'main' && Math.random() < .7) { act({ type: 'PLAY_SET', uid: pick(sp) }); ev('setMain'); } }
+      if (!s.pending && s.winner == null && s.phase === 'main' && s.active === p) act({ type: 'NEXT_PHASE' });
     } else if (s.phase === 'attack') {
       const ready = Engine.unitsOf(s, p).filter(u => Engine.canAttack(s, u));
       const must = Engine.mustAttack(s);
@@ -112,6 +174,7 @@ for (let g = 0; g < 1200; g++) {
     if (l.m.includes('효과로 드롭')) ev('destroyLE');
     if (l.m.includes('상대 턴이라')) ev('standOnOppTurn');
     if (/파워 -5000, 히트 -2/.test(l.m)) ev('debuff');
+    if (l.m.startsWith('(처리하지 못한')) ev(l.m);
   }
   st.games++; st.turns += s.turnCount; st.wins[s.winner]++;
 }
