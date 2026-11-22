@@ -1558,7 +1558,6 @@ const Engine = (() => {
   function startBattle(s, a, b) {
     const A = findUnit(s, a), B = findUnit(s, b);
     log(s, `배틀: ${name(A)}(${power(s, A)}) ↔ ${name(B)}(${power(s, B)})`);
-    fxe(s, { k: 'battle', a, b, ia: A.id, ib: B.id, pa: power(s, A), pb: power(s, B) });
     s.battle = { a, b };
     s.conts.push({ k: 'battle', a, b });
     // 배틀 시 자동 능력: 턴 플레이어 쪽 먼저 (1304-2a)
@@ -1585,6 +1584,9 @@ const Engine = (() => {
   function battleDamage(s, a, b) {   // 804
     const A = findUnit(s, a), B = findUnit(s, b);
     if (!A || !B) { log(s, '배틀 상대가 없어져 데미지 없음'); return; }
+    // 배틀 연출은 배틀 시 능력이 모두 끝나고 실제로 데미지를 주고받는 이 시점에 (803-8a → 804)
+    log(s, `배틀 처리: ${name(A)}(${power(s, A)}) ↔ ${name(B)}(${power(s, B)})`);
+    fxe(s, { k: 'battle', a, b, ia: A.id, ib: B.id, pa: power(s, A), pb: power(s, B) });
     const ab = hasKw(s, A, 'blitz'), bb = hasKw(s, B, 'blitz');
     if (ab || bb) {
       if (ab) hitUnit(s, A, B, power(s, A));
@@ -1660,6 +1662,7 @@ const Engine = (() => {
     s.revSeq = (s.revSeq || 0) + 1;
     (s.reveals ||= []).push({ seq: s.revSeq, p, id: c.id, uid: c.uid, kind, n, total, life: s.players[p].life.length });
     if (s.reveals.length > 20) s.reveals.splice(0, s.reveals.length - 20);
+    fxe(s, { k: 'life', p, id: c.id, uid: c.uid, kind, no: n, total, life: s.players[p].life.length });
   }
   const requireMain = s => { if (s.pending || s.phase !== 'main') fail('메인 페이즈에만 할 수 있습니다'); };
   const requirePending = (s, type) => { if (s.pending?.type !== type) fail('지금은 할 수 없는 행동입니다'); return s.pending; };
@@ -4312,19 +4315,22 @@ const Fx = {
     if ((S.fxSeq || 0) < this.seen) { this.reset(); this.seen = 0; }
     const fresh = (S.fx || []).filter(e => e.n > this.seen);
     this.seen = Math.max(this.seen, S.fxSeq || 0);
-    if (this.mode !== 'off' && fresh.length <= 40) this.q.push(...fresh);   // 다시 접속해 한꺼번에 따라잡을 때는 연출 생략
+    // 라이프 공개는 연출을 꺼도 보여 줌. 다시 접속해 한꺼번에 따라잡을 때는 연출 생략
+    if (fresh.length <= 40) this.q.push(...(this.mode === 'off' ? fresh.filter(e => e.k === 'life') : fresh));
     if (!this.busy) this.next();
   },
   speed() { const base = this.mode === 'fast' ? .5 : 1; return this.q.length > 10 ? base * .45 : this.q.length > 5 ? base * .7 : base; },
   next() {
     clearTimeout(this.timer);
-    const e = this.q.shift();
-    if (!e) { this.busy = false; this.shield(false); Reveal.sync(); return; }
+    Reveal.clear();
+    const e = this.q.shift(); this.cur = e || null;
+    if (!e) { this.busy = false; this.shield(false); return; }
     this.busy = true; this.shield(true);
     let d = 0; try { d = this.show(e); } catch (err) { d = 0; }
-    this.timer = setTimeout(() => this.next(), d * this.speed());
+    this.timer = setTimeout(() => this.next(), d * (e.k === 'life' ? Math.max(this.speed(), .7) : this.speed()));
   },
-  skip() { clearTimeout(this.timer); this.q = []; const L = this.layer(); if (L) L.innerHTML = ''; this.busy = false; this.shield(false); Reveal.sync(); },
+  // 누르면 연출을 건너뜀. 라이프 공개는 정보라서 건너뛰지 않고 한 장씩 넘김
+  skip() { clearTimeout(this.timer); this.q = this.q.filter(e => e.k === 'life'); const L = this.layer(); if (L) L.innerHTML = ''; this.next(); },
   shield(on) { const el = document.getElementById('fxshield'); if (el) el.hidden = !on; },
   el(uid) { return document.querySelector(`.ps .card[data-z="field"][data-u="${uid}"]`); },
   rect(uid) { const el = this.el(uid); return el ? el.getBoundingClientRect() : this.rects[uid] || null; },
@@ -4363,6 +4369,7 @@ const Fx = {
       case 'battle': Sfx.play('clash'); this.banner(`<div class="vs"><div class="fxmini">${this.mini(e.ia)}</div><b>${e.pa}</b><i>VS</i><b>${e.pb}</b><div class="fxmini">${this.mini(e.ib)}</div></div>`, 'battle', 1150); return 1100;
       case 'dmg': { const r = this.rect(e.u); if (!r) return 0; Sfx.play('hit'); this.at(r, 'shake', '', 450); this.at(r, 'num', `<b>-${e.v}</b>${e.tot != null && e.tot !== e.v ? `<small>누적 ${e.tot}</small>` : ''}`, 1000); return 380; }
       case 'gone': { const r = this.rects[e.u] || this.rect(e.u); if (!r) return 0; Sfx.play('break'); this.at(r, 'ghost vanish', this.mini(e.id), 700); return 520; }
+      case 'life': return Reveal.show(e);
       case 'win': Sfx.play('win'); this.banner(`<b>${esc(this.pname(e.p))} 승리!</b>`, 'big win', 2200); return 1800;
     }
     return 0;
@@ -4370,30 +4377,21 @@ const Fx = {
 };
 if (typeof document !== 'undefined') document.getElementById('fxshield')?.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); Fx.skip(); });
 
-/* 라이프 데미지로 공개된 카드를 한 장씩 보여 줌 (누르면 다음 장) */
+/* 라이프 데미지로 공개된 카드를 한 장씩 보여 줌. 다른 연출과 같은 순서(Fx 대기열)로 재생되고, 누르면 다음 장 */
 const Reveal = {
-  seen: 0, q: [], timer: null, cur: null,
-  reset() { this.seen = 0; this.q = []; this.cur = null; clearTimeout(this.timer); const el = document.getElementById('reveal'); if (el) el.innerHTML = ''; },
-  sync() {
-    if (!S) return;
-    for (const r of S.reveals || []) if (r.seq > this.seen) { this.q.push(r); this.seen = r.seq; }
-    if (Fx.busy) return;   // 공격·배틀 연출이 끝난 뒤에 보여 줌
-    if (!this.cur) this.next();
-  },
-  next() {
-    clearTimeout(this.timer);
-    const el = document.getElementById('reveal');
-    this.cur = this.q.shift() || null;
-    if (!this.cur) { el.innerHTML = ''; return; }
-    const r = this.cur, d = DEFS[r.id], P = S.players[r.p];
+  el() { return document.getElementById('reveal'); },
+  reset() { this.clear(); },
+  clear() { const el = this.el(); if (el && el.innerHTML) el.innerHTML = ''; },
+  show(r) {
+    const el = this.el(), d = DEFS[r.id], P = S.players[r.p]; if (!el || !d) return 0;
     const kind = { buster: '버스터! 추가 1 데미지', shot: '샷 트리거!', drop: '드롭 존으로' }[r.kind];
     Sfx.play(r.kind === 'buster' ? 'buster' : r.kind === 'shot' ? 'shot' : 'life');
-    el.innerHTML = `<div class="rv" role="status"><h3>${esc(P.name)} 라이프 데미지 ${r.n}${r.total ? ` / ${r.total}` : ''}</h3>
+    el.innerHTML = `<div class="rv" role="status"><h3>${esc(P.name)} 라이프 데미지 ${r.no}${r.total ? ` / ${r.total}` : ''}</h3>
       ${cardHTML(d, { uid: r.uid })}<div class="kind ${r.kind}">${kind}</div><small>남은 라이프 ${r.life}장. 누르면 다음으로</small></div>`;
-    this.timer = setTimeout(() => this.next(), (r.kind === 'drop' ? 1100 : 1600) * (Fx.mode === 'fast' ? .6 : 1));
+    return r.kind === 'drop' ? 1100 : 1600;
   },
 };
-if (typeof document !== 'undefined') document.getElementById('reveal')?.addEventListener('click', () => Reveal.next());
+if (typeof document !== 'undefined') document.getElementById('reveal')?.addEventListener('click', () => Fx.skip());
 
 let renders = 0;
 function onClick(e) {
