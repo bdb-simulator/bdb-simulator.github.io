@@ -297,6 +297,15 @@ section.mat.droptarget{outline-offset:-3px}
 
 /* ── 카드 목록 창 ── */
 .modal{position:fixed;inset:0;background:#0b0918b8;display:grid;place-items:center;z-index:10;padding:20px}
+/* 모바일 카드 설명 팝업 */
+#cardpop{position:fixed;inset:0;z-index:40;background:#0b0918cc;display:flex;align-items:center;justify-content:center;padding:12px;animation:cpIn .16s ease-out}
+#cardpop[hidden]{display:none}
+#cardpop .cp{position:relative;width:min(440px,100%);max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;background:var(--mat);border:1px solid var(--mat-2);border-radius:14px;padding:14px 14px 18px;box-shadow:0 18px 48px #0009}
+#cardpop .cpx{position:sticky;top:0;float:right;margin:-4px -4px 4px 8px;z-index:2;min-width:44px;min-height:44px;border-radius:22px;background:var(--mat-2);color:var(--ink);border:1px solid #ffffff22;font-size:18px}
+#cardpop .detail img.big{max-height:min(52dvh,460px);width:auto;max-width:100%;margin:0 auto;display:block}
+#cardpop .detail img.big.land{max-height:none;width:100%}
+@keyframes cpIn{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){#cardpop{animation:none}}
 .sheet{background:var(--mat);border:1px solid #4b4488;border-radius:16px;width:min(900px,100%);max-height:86vh;display:flex;flex-direction:column}
 .sheet header{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #352f66}
 .sheet h2{margin:0;font-size:16px}
@@ -565,6 +574,7 @@ details.rules li{margin:3px 0}
    오른쪽 설명·기록 칸은 화면 아래에서 올라오는 시트로 바꿈 */
 .mclose,.mname{display:none}
 @media (max-width:720px), (max-height:500px){
+  .card{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   body{-webkit-text-size-adjust:100%}
   .top{gap:6px 8px;padding:6px 10px;position:static}
   .top .turnno{font-size:22px}
@@ -760,6 +770,7 @@ details.rules li{margin:3px 0}
 <body>
 <div id="app"></div>
 <div id="reveal" aria-live="polite"></div>
+<div id="cardpop" hidden></div>
 <div id="fxlayer" aria-hidden="true"></div>
 <div id="fxshield" hidden title="누르면 연출 건너뛰기"><span>누르면 건너뛰기</span></div>
 <script>
@@ -4256,6 +4267,7 @@ function render() {
   ${viewHTML()}
   ${toast ? `<div class="toast" role="status">${esc(toast)}</div>` : ''}`;
   const lg = document.getElementById('log'); if (ui.side === 'log') lg.scrollTop = lg.scrollHeight;
+  CardPop.refresh();   // 상태가 바뀌면 팝업 내용(데미지·파워 등)도 맞춤
   Fx.sync();
 }
 /* ── 효과음 (WebAudio로 즉석 합성: 파일 없음) ───────────────── */
@@ -4396,8 +4408,49 @@ const Reveal = {
 };
 if (typeof document !== 'undefined') document.getElementById('reveal')?.addEventListener('click', () => Fx.skip());
 
+/* 모바일: 카드 설명을 화면 가운데 팝업으로 (탭해서 할 동작이 없는 카드, 길게 누른 카드, '카드 설명' 탭) */
+const isMobile = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width:720px), (max-height:500px)').matches;
+const CardPop = {
+  det: null,
+  el() { return document.getElementById('cardpop'); },
+  show(det, focus = true) {
+    if (!det?.id || !DEFS[det.id]) return;
+    if (focus) this.shownAt = Date.now();
+    this.det = det; const el = this.el(); if (!el) return;
+    el.innerHTML = `<div class="cp" role="dialog" aria-modal="true" aria-label="카드 설명: ${esc(DEFS[det.id].name)}"><button class="cpx" data-cp="x" aria-label="닫기">✕</button>${detailHTML(det)}</div>`;
+    el.hidden = false; if (focus) el.querySelector('.cpx')?.focus({ preventScroll: true });
+  },
+  refresh() { const el = this.el(); if (!this.det || el.hidden) return; const top = el.querySelector('.cp')?.scrollTop || 0; this.show(this.det, false); const cp = el.querySelector('.cp'); if (cp) cp.scrollTop = top; },
+  hide() { const el = this.el(); if (!el || el.hidden) return; el.hidden = true; el.innerHTML = ''; this.det = null; },
+  open() { return !!this.det; },
+};
+if (typeof document !== 'undefined' && document.getElementById('cardpop')) {
+  const el = document.getElementById('cardpop');
+  el.addEventListener('click', e => {
+    if (LongPress.fired || Date.now() - (CardPop.shownAt || 0) < 450) { LongPress.fired = false; return; }   // 길게 누른 손을 뗄 때 생기는 클릭
+    if (e.target === el || e.target.closest('[data-cp="x"]')) { CardPop.hide(); return; }
+    const b = e.target.closest('[data-b]');
+    if (b) { if (b.dataset.b === 'view') CardPop.hide(); handleAction(e, false); CardPop.refresh(); }
+  });
+}
+// 길게 누르기 (0.45초): 선택·공격 같은 동작이 있는 카드도 설명을 볼 수 있게
+const LongPress = {
+  timer: null, x: 0, y: 0, fired: false,
+  start(e) {
+    this.fired = false;
+    if (!isMobile() || e.button > 0) return;
+    const c = e.target.closest('[data-id]'); if (!c) return;
+    this.cancel(); this.fired = false; this.x = e.clientX; this.y = e.clientY;
+    this.timer = setTimeout(() => { this.timer = null; this.fired = true; navigator.vibrate?.(12);
+      ui.detail = { id: c.dataset.id, uid: c.dataset.cu || c.dataset.u || null }; CardPop.show(ui.detail); }, 450);
+  },
+  move(e) { if (this.timer && Math.hypot(e.clientX - this.x, e.clientY - this.y) > 10) this.cancel(); },
+  cancel() { clearTimeout(this.timer); this.timer = null; },
+};
+
 let renders = 0;
 function onClick(e) {
+  if (LongPress.fired) { LongPress.fired = false; if (Date.now() - (CardPop.shownAt || 0) < 1500) { e.preventDefault(); return; } }   // 길게 눌러 팝업을 띄운 뒤의 클릭은 무시
   // 어떤 카드든 누르면 설명을 띄우고, 원래 동작(선택·공격·대상 지정 등)도 이어서 처리
   const cardEl = e.target.closest('[data-id]');
   if (cardEl) {
@@ -4406,7 +4459,7 @@ function onClick(e) {
   }
   const before = renders;
   handleAction(e, !!cardEl);
-  if (cardEl && renders === before) render();
+  if (cardEl && renders === before) { render(); if (isMobile()) CardPop.show(ui.detail); }   // 모바일: 할 동작이 없는 카드는 팝업으로 설명
 }
 function handleAction(e, onCard) {
   const b0 = e.target.closest('[data-b]');
@@ -4417,6 +4470,7 @@ function handleAction(e, onCard) {
     if (k === 'closeView') { if (b.classList.contains('modal') && e.target !== b) return; ui.view = null; return render(); }
     if (k === 'view') { ui.view = { p: +b.dataset.p, zone: b.dataset.zone, mode: 'list' }; return render(); }
     if (k === 'viewMode') { ui.view.mode = b.dataset.m; return render(); }
+    if (k === 'side' && b.dataset.s === 'card' && isMobile() && ui.detail?.id) { ui.side = 'card'; ui.sheet = false; render(); CardPop.show(ui.detail); return; }
     if (k === 'side') { if (ui.sheet && ui.side === b.dataset.s) ui.sheet = false; else ui.sheet = true; ui.side = b.dataset.s; return render(); }
     if (k === 'sheetClose') { ui.sheet = false; return render(); }
     if (k === 'lang') { LANG = LANG === 'ko' ? 'ja' : 'ko'; try { localStorage.setItem('bdb-lang', LANG); } catch {} return render(); }
@@ -4828,11 +4882,20 @@ if (typeof document !== 'undefined' && document.getElementById('app')) {
   const app = document.getElementById('app');
   initDrag(app);
   app.addEventListener('click', onClick);
+  app.addEventListener('pointerdown', e => LongPress.start(e));
+  app.addEventListener('pointermove', e => LongPress.move(e));
+  for (const t of ['pointerup', 'pointercancel', 'scroll']) app.addEventListener(t, () => LongPress.cancel(), true);
+  app.addEventListener('contextmenu', e => {   // 휴대폰 길게 누르기는 브라우저 메뉴 대신 카드 설명
+    const c = isMobile() && e.target.closest('[data-id]'); if (!c) return;
+    e.preventDefault(); LongPress.cancel();
+    if (!CardPop.open()) { LongPress.fired = true; ui.detail = { id: c.dataset.id, uid: c.dataset.cu || c.dataset.u || null }; CardPop.show(ui.detail); }
+  });
   // 고르기 창의 카드에 올리면 필드의 같은 카드를 표시
   const hl = (uid, on) => document.querySelectorAll(`.ps .card[data-z="field"][data-u="${uid}"]`).forEach(el => el.classList.toggle('hl', on));
   app.addEventListener('pointerover', e => { const p = e.target.closest('.pickc[data-hl]'); if (p) hl(p.dataset.hl, true); });
   app.addEventListener('pointerout', e => { const p = e.target.closest('.pickc[data-hl]'); if (p && !p.contains(e.relatedTarget)) hl(p.dataset.hl, false); });
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && CardPop.open()) { CardPop.hide(); return; }
     if (e.key === 'Escape' && ui.view) { ui.view = null; render(); return; }
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-z][tabindex]')) { e.preventDefault(); e.target.click(); }
   });
