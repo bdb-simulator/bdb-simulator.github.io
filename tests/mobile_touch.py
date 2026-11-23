@@ -7,12 +7,13 @@ async def main():
         pg = await ctx.new_page(); errs=[]; pg.on('pageerror', lambda e: errs.append(str(e)))
         await pg.goto('http://127.0.0.1:8790/index.html'); await pg.wait_for_timeout(800)
         await pg.tap('[data-b=goPlay]'); await pg.wait_for_timeout(300)
+        await pg.evaluate("deckChoice=['wGZEVOA7X','wGZEVOA7X']; render()")
         await pg.tap('[data-b=startLocal]'); await pg.wait_for_timeout(400)
         for _ in range(2):
             await pg.tap('[data-b=keep]'); await pg.wait_for_timeout(300)
         await pg.evaluate("""() => { const s=structuredClone(S),p=s.active; const P=s.players[p];
           const u=Object.keys(DEFS).find(k=>DEFS[k].type==='unit'&&DEFS[k].cost<=2&&!DEFS[k].ab?.length&&DEFS[k].color!=='none');
-          for (let i=0;i<4;i++) P.energy.push({uid:'ze'+i,id:u,rested:false}); P.hand.unshift({uid:'zz1',id:u}); S=s; render(); }""")
+          for (let i=0;i<4;i++) P.energy.push({uid:'ze'+i,id:u,rested:false}); P.hand.unshift({uid:'zz1',id:u}); S=s; render(); Fx.reset(); }""")
         await pg.wait_for_timeout(500)
         cdp = await ctx.new_cdp_session(pg)
         async def touch(t, x, y):
