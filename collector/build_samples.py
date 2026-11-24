@@ -247,6 +247,7 @@ def export_db(cards):
 def main():
     cards = {c['id']: c for c in json.load(open(CARDS, encoding='utf-8'))}
     dbdefs = export_db(cards)
+    collabs = json.load(open(ROOT / 'simulator' / 'cards_db.json', encoding='utf-8'))['collabs']   # 덱 편성 작품 목록을 전체 목록 없이도 바로 보여 줌
     src = json.load(open(DECKS, encoding='utf-8'))
     pick = src.get('samples') or [d['hashid'] for d in src['decks']]
     decks = {d['hashid']: d for d in src['decks']}
@@ -268,6 +269,7 @@ def main():
              '/* 자동 생성: collector/build_samples.py — 공식 사이트 입상 덱과 그 카드 */\n'
              f'const GEN_DEFS = {json.dumps(defs, ensure_ascii=False, separators=(",", ":"))};\n'
              f'const GEN_DECKS = {json.dumps(out, ensure_ascii=False, separators=(",", ":"))};\n'
+             f'const GEN_COLLABS = {json.dumps(collabs, ensure_ascii=False, separators=(",", ":"))};\n'
              '/*GEN-SAMPLES-END*/')
     html = HTML.read_text(encoding='utf-8')
     html2 = re.sub(r'/\*GEN-SAMPLES-START\*/.*?/\*GEN-SAMPLES-END\*/', lambda m: block, html, flags=re.S)
